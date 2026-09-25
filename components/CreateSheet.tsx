@@ -19,7 +19,7 @@ import {
   X,
 } from "lucide-react";
 import { useState } from "react";
-import { ApiError, api, copyText, fmtDate, keys, kstToIso, kstToday, local, shareLink, track } from "@/lib/client";
+import { ApiError, api, copyText, pollUrl, shareText, fmtDate, keys, kstToIso, kstToday, local, shareLink, track } from "@/lib/client";
 import { LIMITS } from "@/lib/poll";
 import { type Place, type Region, menuLabel, toSnap } from "@/lib/places";
 import type { QuestionKind, Template } from "@/lib/types";
@@ -30,8 +30,15 @@ import { PinPad } from "./PinPad";
 import { Sheet, SheetBody, SheetFooter } from "./Sheet";
 import { Button, Field, IconButton, Segmented, Toggle, cx, inputCls, toast } from "./ui";
 
-type Step = "type" | "info" | "questions" | "pin" | "pin2" | "done";
-type DraftQ = { key: string; kind: QuestionKind; title: string; options: string[] };
+type Step = "type" | "info" | "questions" | "pin" | "pin2" | "admin" | "done";
+type DraftQ = {
+  key: string;
+  kind: QuestionKind;
+  title: string;
+  options: string[];
+  topic?: "place" | "menu";
+  optionGroups?: Record<string, string>;
+};
 
 let seq = 0;
 const k = () => `d${++seq}`;
@@ -42,7 +49,7 @@ function generalQuestions(): DraftQ[] {
 
 const SLOTS = { lunch: "12:00", dinner: "18:30" } as const;
 
-type Created = { id: string; adminToken: string; title: string; team: string; menuLater: boolean };
+type Created = { id: string; adminToken: string; title: string; team: string; menuLater: boolean; stageLabel: string };
 
 
 export function CreateSheet({
@@ -89,6 +96,9 @@ export function CreateSheet({
   const [askNote, setAskNote] = useState(true);
   const [pin, setPin] = useState("");
   const [pinMsg, setPinMsg] = useState<string | null>(null);
+  const [adminPin, setAdminPin] = useState("");
+  // 다음 버튼을 눌렀는데 빠진 항목이 있으면 해당 칸을 강조
+  const [tried, setTried] = useState<{ info?: boolean; questions?: boolean }>({});
   const [busy, setBusy] = useState(false);
   const [created, setCreated] = useState<Created | null>(null);
 
@@ -112,11 +122,22 @@ export function CreateSheet({
     (placeMode === "vote" ? candidatePlaces : placeMode === "fixed" ? fixedPlace : []).map((p) => [p.name, toSnap(p)]),
   );
   const menuSource = placeMode === "fixed" ? (fixedPlace[0]?.menus ?? []) : [];
+  // 식당·메뉴 한 번에 받기: 후보 식당별 메뉴 → 선택지 라벨(식당 간 같은 이름이면 식당명 덧붙임)과 소속 식당
+  const together = placeMode === "vote" && !menuLater;
+  const dupLabels = (() => {
+    const seen = new Map<string, number>();
+    for (const p of candidatePlaces) for (const m of p.menus) seen.set(menuLabel(m), (seen.get(menuLabel(m)) ?? 0) + 1);
+    return new Set([...seen].filter(([, n]) => n > 1).map(([l]) => l));
+  })();
+  const groupLabel = (p: Place, m: Place["menus"][number]) => (dupLabels.has(menuLabel(m)) ? `${menuLabel(m)} · ${p.name}`.slice(0, 40) : menuLabel(m));
+  const menuGroups: Record<string, string> = {};
+  if (together) for (const p of candidatePlaces) for (const m of p.menus) if (menus.includes(groupLabel(p, m))) menuGroups[groupLabel(p, m)] = p.name;
+  const suggested = new Set(together ? candidatePlaces.flatMap((p) => p.menus.map((m) => groupLabel(p, m))) : menuSource.map(menuLabel));
   const mealQs: DraftQ[] = [
     { key: "a", kind: "attendance", title: "참석하시나요?", options: [] },
-    ...(placeMode === "vote" && candidates.length ? [{ key: "r", kind: "multi" as const, title: "어느 식당이 좋으세요?", options: candidates }] : []),
+    ...(placeMode === "vote" && candidates.length ? [{ key: "r", kind: "multi" as const, title: "어느 식당이 좋으세요?", options: candidates, topic: "place" as const }] : []),
     ...((placeMode !== "vote" || !menuLater || !candidates.length) && menus.length
-      ? [{ key: "m", kind: (menuMulti ? "multi" : "single") as QuestionKind, title: "어떤 메뉴로 하시겠어요?", options: menus }]
+      ? [{ key: "m", kind: (menuMulti ? "multi" : "single") as QuestionKind, title: "어떤 메뉴로 하시겠어요?", options: menus, topic: "menu" as const, optionGroups: together && Object.keys(menuGroups).length ? menuGroups : undefined }]
       : []),
     ...(askNote ? [{ key: "n", kind: "text" as const, title: "요청사항이 있으면 알려주세요", options: [] }] : []),
   ];
@@ -140,7 +161,19 @@ export function CreateSheet({
         : null
     : validQs.length === 0 ? "질문과 선택지를 1개 이상 입력해 주세요" : questions.some((q) => (q.kind === "single" || q.kind === "multi") && q.options.length > 0 && !q.title.trim()) ? "질문 제목을 입력해 주세요" : null;
 
-  async function create(pinValue: string) {
+  const infoField = !team.trim() ? "team" : !finalTitle ? "title" : infoError?.includes("모임 시각") ? "date" : infoError ? "deadline" : null;
+  const qField = isMeal ? "place" : "questions";
+  function attempt(kind: "info" | "questions", error: string | null, field: string | null, next: Step) {
+    if (!error) {
+      setTried((t) => ({ ...t, [kind]: false }));
+      return go(next);
+    }
+    setTried((t) => ({ ...t, [kind]: true }));
+    document.getElementById(`f-${field}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }
+  const ferr = (field: string) => (tried.info && infoField === field ? infoError : null);
+
+  async function create(pinValue: string, adminPinValue: string) {
     setBusy(true);
     try {
       const body = {
@@ -155,12 +188,20 @@ export function CreateSheet({
         eventAt,
         deadline: deadlineIso,
         pin: pinValue,
-        questions: validQs.map((q) => ({ kind: q.kind, title: q.title.trim() || "참석하시나요?", options: q.options })),
+        questions: validQs.map((q) => ({ kind: q.kind, title: q.title.trim() || "참석하시나요?", options: q.options, topic: q.topic, optionGroups: q.optionGroups })),
+        menuLater: isMeal && placeMode === "vote" && menuLater && candidates.length > 0,
+        adminPin: adminPinValue,
       };
       const res = await api.create(body);
       local.set(keys.admin(res.id), res.adminToken);
       local.set(keys.team, body.team);
-      setCreated({ ...res, title: body.title, team: body.team, menuLater: isMeal && placeMode === "vote" && menuLater });
+      setCreated({
+        ...res,
+        title: body.title,
+        team: body.team,
+        menuLater: isMeal && placeMode === "vote" && menuLater,
+        stageLabel: isMeal && placeMode === "vote" && candidates.length ? (menuLater ? "식당 투표 중" : "식당·메뉴 투표 중") : isMeal && menus.length ? "메뉴 선택 중" : "투표 중",
+      });
       track("poll-created");
       onCreated(res.id, body.team);
       go("done");
@@ -174,8 +215,8 @@ export function CreateSheet({
     }
   }
 
-  const stepIndex = { type: 0, info: 1, questions: 2, pin: 3, pin2: 3, done: 4 }[step];
-  const prevStep: Partial<Record<Step, Step>> = { info: "type", questions: "info", pin: "questions", pin2: "pin" };
+  const stepIndex = { type: 0, info: 1, questions: 2, pin: 3, pin2: 3, admin: 3, done: 4 }[step];
+  const prevStep: Partial<Record<Step, Step>> = { info: "type", questions: "info", pin: "questions", pin2: "pin", admin: "pin" };
 
   return (
     <Sheet open={open} onClose={close} label="새 투표 만들기">
@@ -240,7 +281,7 @@ export function CreateSheet({
               <SheetBody className="pb-6 pt-5">
                 <Head title={isMeal ? "모임 정보" : "투표 정보"} />
                 <div className="space-y-6">
-                  <Field label="팀">
+                  <Field label="팀" id="f-team" error={ferr("team")}>
                     <div className="flex flex-wrap gap-2">
                       {teams.map((t) => (
                         <Chip
@@ -288,7 +329,7 @@ export function CreateSheet({
 
                   {isMeal && (
                     <>
-                      <Field label="날짜">
+                      <Field label="날짜" id="f-date" error={ferr("date")}>
                         <div className="mb-2 flex gap-2">
                           {[
                             ["오늘", kstToday()],
@@ -318,7 +359,7 @@ export function CreateSheet({
                     </>
                   )}
 
-                  <Field asLabel label="제목" hint={isMeal ? "비워두면 자동으로 채워져요" : "PIN 없이 목록에 보여요"}>
+                  <Field asLabel label="제목" id="f-title" error={ferr("title")} hint={isMeal ? "비워두면 자동으로 채워져요" : "PIN 없이 목록에 보여요"}>
                     <input
                       value={title}
                       onChange={(e) => setTitle(e.target.value)}
@@ -328,7 +369,7 @@ export function CreateSheet({
                     />
                   </Field>
 
-                  <Field label="응답 마감">
+                  <Field label="응답 마감" id="f-deadline" error={ferr("deadline")}>
                     <Segmented
                       value={deadlineMode}
                       onChange={setDeadlineMode}
@@ -360,8 +401,8 @@ export function CreateSheet({
                 </div>
               </SheetBody>
               <SheetFooter>
-                <Button className="w-full" disabled={!!infoError} onClick={() => go("questions")}>
-                  {infoError ?? (
+                <Button className="w-full" onClick={() => attempt("info", infoError, infoField, "questions")}>
+                  {(
                     <>
                       다음 <ArrowRight className="size-5" />
                     </>
@@ -378,7 +419,7 @@ export function CreateSheet({
                   <>
                 <Head title="식당과 메뉴" sub="참석 여부는 항상 먼저 물어보고, 불참자에게는 식당·메뉴를 묻지 않아요." />
                 <div className="space-y-6">
-                  <Field label="식당">
+                  <Field label="식당" id="f-place" error={tried.questions ? qError : null}>
                     <Segmented
                       value={placeMode}
                       onChange={setPlaceMode}
@@ -390,7 +431,18 @@ export function CreateSheet({
                     />
                     <div className="mt-3">
                       {placeMode === "vote" && (
-                        <PlacePicker region={region} mode="multi" selected={candidatePlaces} onChange={setCandidatePlaces} max={LIMITS.options} />
+                        <PlacePicker
+                          region={region}
+                          mode="multi"
+                          selected={candidatePlaces}
+                          max={LIMITS.options}
+                          onChange={(v) => {
+                            // 빠진 식당의 메뉴는 선택지에서도 제거 (직접 입력한 공통 메뉴는 유지)
+                            const keep = new Set(v.flatMap((p) => p.menus.map(menuLabel)));
+                            setMenus((ms) => ms.filter((m) => !suggested.has(m) || keep.has(m) || [...keep].some((k) => m.startsWith(`${k} · `))));
+                            setCandidatePlaces(v);
+                          }}
+                        />
                       )}
                       {placeMode === "fixed" && (
                         <PlacePicker
@@ -429,20 +481,44 @@ export function CreateSheet({
                       </div>
                     ) : (
                       <>
-                        <MenuSuggestions
-                          menus={menuSource}
-                          selected={menus}
-                          onToggle={(l) => setMenus(menus.includes(l) ? menus.filter((x) => x !== l) : [...menus, l].slice(0, LIMITS.options))}
-                        />
+                        {together ? (
+                          candidatePlaces.some((p) => p.menus.length) ? (
+                            <>
+                              <p className="mb-3 rounded-xl bg-accent-soft px-3 py-2.5 text-[12.5px] leading-relaxed text-[#0b6b51]">
+                                참여자에게는 <b>자신이 고른 식당의 메뉴만</b> 식당별로 보여줘요.
+                              </p>
+                              {candidatePlaces
+                                .filter((p) => p.menus.length)
+                                .map((p) => (
+                                  <MenuSuggestions
+                                    key={p.id}
+                                    title={`${p.name} 메뉴`}
+                                    menus={p.menus}
+                                    labelOf={(m) => groupLabel(p, m)}
+                                    selected={menus}
+                                    onToggle={(l) => setMenus(menus.includes(l) ? menus.filter((x) => x !== l) : [...menus, l].slice(0, LIMITS.options))}
+                                  />
+                                ))}
+                            </>
+                          ) : (
+                            <p className="mb-3 text-[12.5px] text-ink-3">후보 식당에 등록된 메뉴가 없어요. 아래에 직접 입력하거나 식당 &lsquo;편집&rsquo;에서 메뉴를 추가하세요.</p>
+                          )
+                        ) : (
+                          <MenuSuggestions
+                            menus={menuSource}
+                            selected={menus}
+                            onToggle={(l) => setMenus(menus.includes(l) ? menus.filter((x) => x !== l) : [...menus, l].slice(0, LIMITS.options))}
+                          />
+                        )}
                         {/* 식당 메뉴에서 고른 항목은 위에 표시되므로, 아래에는 직접 추가한 항목만 */}
                         <ChipsInput
-                          values={menus.filter((m) => !menuSource.some((x) => menuLabel(x) === m))}
-                          onChange={(custom) => setMenus([...menus.filter((m) => menuSource.some((x) => menuLabel(x) === m)), ...custom].slice(0, LIMITS.options))}
+                          values={menus.filter((m) => !suggested.has(m))}
+                          onChange={(custom) => setMenus([...menus.filter((m) => suggested.has(m)), ...custom].slice(0, LIMITS.options))}
                           max={LIMITS.options}
                           maxLength={LIMITS.option}
                           label="메뉴"
                           placeholder="메뉴 추가"
-                          emptyPlaceholder={menuSource.length ? "목록에 없는 메뉴 직접 추가" : "예) 김치찌개, 된장찌개 (비워두면 생략)"}
+                          emptyPlaceholder={suggested.size ? "목록에 없는 메뉴 직접 추가 (모든 식당 공통)" : "예) 김치찌개, 된장찌개 (비워두면 생략)"}
                         />
                         {menus.length > 0 && (
                           <div className="mt-3">
@@ -477,6 +553,9 @@ export function CreateSheet({
                 ) : (
                   <>
                     <Head title="무엇을 물어볼까요?" sub="질문과 선택지를 입력하세요." />
+                    {tried.questions && qError && (
+                      <p id="f-questions" className="-mt-3 mb-4 rounded-xl bg-danger/5 px-3 py-2 text-[13px] font-medium text-danger">{qError}</p>
+                    )}
                 <div className="space-y-3">
                   {questions.map((q, i) => (
                     <QuestionEditor
@@ -507,8 +586,8 @@ export function CreateSheet({
                 )}
               </SheetBody>
               <SheetFooter>
-                <Button className="w-full" disabled={!!qError} onClick={() => go("pin")}>
-                  {qError ?? (
+                <Button className="w-full" onClick={() => attempt("questions", qError, qField, "pin")}>
+                  {(
                     <>
                       PIN 설정하기 <KeyRound className="size-5" />
                     </>
@@ -547,13 +626,44 @@ export function CreateSheet({
                     setPinMsg("PIN이 일치하지 않아요. 다시 입력해 주세요");
                     return false;
                   }
-                  return create(v);
+                  setPinMsg(null);
+                  go("admin");
+                  return true;
                 }}
               />
             </SheetBody>
           )}
 
-          {step === "done" && created && <CreatedView created={created} pin={pin} onClose={close} />}
+          {step === "admin" && (
+            <SheetBody className="pb-safe">
+              <PinPad
+                tone="set"
+                title="관리자 PIN을 정해주세요"
+                subtitle={
+                  busy ? (
+                    "투표를 만드는 중…"
+                  ) : (
+                    <>
+                      나만 아는 4자리 · <b className="font-semibold text-ink-2">참여 PIN과 다르게</b>
+                      <br />
+                      다른 폰·카톡 브라우저에서도 이 PIN으로 마감·대리 입력을 할 수 있어요
+                    </>
+                  )
+                }
+                message={pinMsg}
+                onSubmit={async (v) => {
+                  if (v === pin) {
+                    setPinMsg("참여 PIN과 다른 번호로 정해 주세요");
+                    return false;
+                  }
+                  setAdminPin(v);
+                  return create(pin, v);
+                }}
+              />
+            </SheetBody>
+          )}
+
+          {step === "done" && created && <CreatedView created={created} pin={pin} adminPin={adminPin} onClose={close} />}
         </motion.div>
       </AnimatePresence>
     </Sheet>
@@ -751,14 +861,16 @@ function QuestionEditor({
 function CreatedView({
   created,
   pin,
+  adminPin,
   onClose,
 }: {
   created: Created;
   pin: string;
+  adminPin: string;
   onClose: () => void;
 }) {
-  const url = typeof window !== "undefined" ? `${location.origin}/p/${created.id}` : "";
-  const baseText = `[${created.team}] ${created.title}\n아래 링크에서 참여해 주세요 🗳️`;
+  const url = typeof window !== "undefined" ? pollUrl(created.id) : "";
+  const baseText = shareText({ team: created.team, title: created.title, stageLabel: created.stageLabel });
   return (
     <>
       <SheetBody className="pb-6 pt-8">
@@ -776,9 +888,17 @@ function CreatedView({
         </div>
 
         <div className="mt-7 rounded-2xl bg-ink p-5 text-white">
-          <p className="text-[12.5px] font-semibold text-white/55">참여 PIN</p>
-          <p className="mt-1 text-[34px] font-bold tracking-[0.3em] tabular-nums">{pin}</p>
-          <p className="mt-2 break-all text-[13px] text-white/60">{url}</p>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <p className="text-[12.5px] font-semibold text-white/55">참여 PIN · 팀원 공유</p>
+              <p className="mt-1 text-[30px] font-bold tracking-[0.25em] tabular-nums">{pin}</p>
+            </div>
+            <div>
+              <p className="text-[12.5px] font-semibold text-[#f5c96a]">관리자 PIN · 나만</p>
+              <p className="mt-1 text-[30px] font-bold tracking-[0.25em] tabular-nums text-[#f5c96a]">{adminPin}</p>
+            </div>
+          </div>
+          <p className="mt-3 break-all text-[13px] text-white/60">{url}</p>
         </div>
 
         <div className="mt-3 grid gap-2">
@@ -786,7 +906,7 @@ function CreatedView({
             variant="secondary"
             size="md"
             onClick={async () => {
-              const r = await shareLink(url, created.title, `${baseText}\n🔒 PIN은 별도로 안내드려요`);
+              const r = await shareLink(url, created.title, `${baseText}\n🔒 참여 PIN은 별도로 안내드려요`);
               if (r === "copied") toast("링크를 복사했어요");
             }}
           >
@@ -796,7 +916,7 @@ function CreatedView({
             variant="secondary"
             size="md"
             onClick={async () => {
-              const ok = await copyText(`${baseText}\n🔒 PIN: ${pin}\n${url}`);
+              const ok = await copyText(`${baseText}\n🔒 참여 PIN: ${pin}\n👉 ${url}`);
               toast(ok ? "PIN 포함 메시지를 복사했어요" : "복사에 실패했어요");
             }}
           >

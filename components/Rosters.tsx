@@ -13,9 +13,25 @@ import { Button, cx, toast } from "./ui";
 const pinCls =
   "h-11 w-[92px] shrink-0 rounded-xl bg-ink/[0.04] px-3 text-center text-[18px] font-bold tracking-[0.4em] outline-none placeholder:text-[14px] placeholder:font-medium placeholder:tracking-normal placeholder:text-ink-3/80 focus:bg-ink/[0.06]";
 
-function PinInput({ value, onChange, onEnter, label }: { value: string; onChange: (v: string) => void; onEnter?: () => void; label: string }) {
+function PinInput({
+  value,
+  onChange,
+  onEnter,
+  label,
+  invalid,
+  id,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  onEnter?: () => void;
+  label: string;
+  invalid?: boolean;
+  id?: string;
+}) {
   return (
     <input
+      id={id}
+      aria-invalid={invalid || undefined}
       type="password"
       inputMode="numeric"
       pattern="[0-9]*"
@@ -26,7 +42,7 @@ function PinInput({ value, onChange, onEnter, label }: { value: string; onChange
       value={value}
       onChange={(e) => onChange(e.target.value.replace(/\D/g, "").slice(0, 4))}
       onKeyDown={(e) => e.key === "Enter" && value.length === 4 && onEnter?.()}
-      className={pinCls}
+      className={cx(pinCls, invalid && "bg-danger/5 ring-2 ring-danger")}
     />
   );
 }
@@ -55,6 +71,9 @@ export function RosterField({
   const [saving, setSaving] = useState(false);
   const [saveTitle, setSaveTitle] = useState("");
   const [savePin, setSavePin] = useState("");
+  // 누락 항목 안내 (비활성 버튼 대신, 누르면 무엇이 빠졌는지 표시)
+  const [saveErr, setSaveErr] = useState<{ title?: boolean; pin?: boolean } | null>(null);
+  const [openErr, setOpenErr] = useState(false);
 
   useEffect(() => {
     api
@@ -64,7 +83,11 @@ export function RosterField({
   }, [region]);
 
   async function open(r: RosterSummary) {
-    if (pin.length !== 4) return;
+    if (pin.length !== 4) {
+      setOpenErr(true);
+      document.getElementById("roster-open-pin")?.focus();
+      return;
+    }
     setBusy(true);
     try {
       const res = await api.roster(r.id, { pin, action: "open" });
@@ -82,6 +105,13 @@ export function RosterField({
   }
 
   async function saveNew() {
+    const err = { title: !saveTitle.trim(), pin: savePin.length !== 4 };
+    if (err.title || err.pin) {
+      setSaveErr(err);
+      document.getElementById(err.title ? "roster-save-title" : "roster-save-pin")?.focus();
+      return;
+    }
+    setSaveErr(null);
     setBusy(true);
     try {
       const { roster } = await api.createRoster({ region, title: saveTitle.trim(), names, pin: savePin });
@@ -147,11 +177,22 @@ export function RosterField({
             {opening && (
               <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden">
                 <div className="mt-2 flex items-center gap-2 rounded-2xl border border-line p-2">
-                  <PinInput label="명단 PIN" value={pin} onChange={setPin} onEnter={() => open(lists.find((x) => x.id === opening)!)} />
-                  <Button size="md" className="flex-1" loading={busy} disabled={pin.length !== 4} onClick={() => open(lists.find((x) => x.id === opening)!)}>
+                  <PinInput
+                    id="roster-open-pin"
+                    label="명단 PIN"
+                    value={pin}
+                    invalid={openErr && pin.length !== 4}
+                    onChange={(v) => {
+                      setPin(v);
+                      setOpenErr(false);
+                    }}
+                    onEnter={() => open(lists.find((x) => x.id === opening)!)}
+                  />
+                  <Button size="md" className="flex-1" loading={busy} onClick={() => open(lists.find((x) => x.id === opening)!)}>
                     명단 불러오기
                   </Button>
                 </div>
+                {openErr && pin.length !== 4 && <p className="mt-1.5 px-1 text-[12.5px] font-medium text-danger">명단을 저장할 때 정한 PIN 4자리를 입력해 주세요</p>}
               </motion.div>
             )}
           </AnimatePresence>
@@ -191,20 +232,43 @@ export function RosterField({
               <p className="mb-2 text-[12.5px] leading-relaxed text-ink-3">보관함에는 제목만 공개돼요. 이름은 이 PIN을 아는 사람만 불러올 수 있어요.</p>
               <div className="flex gap-2">
                 <input
+                  id="roster-save-title"
                   value={saveTitle}
-                  onChange={(e) => setSaveTitle(e.target.value)}
+                  onChange={(e) => {
+                    setSaveTitle(e.target.value);
+                    setSaveErr((x) => (x ? { ...x, title: false } : x));
+                  }}
                   maxLength={LIMITS.team}
                   aria-label="명단 이름"
+                  aria-invalid={saveErr?.title || undefined}
                   placeholder="명단 이름 (예: 회계세무부)"
-                  className="h-11 min-w-0 flex-1 rounded-xl bg-ink/[0.04] px-3 text-[16px] outline-none focus:bg-ink/[0.06]"
+                  className={cx(
+                    "h-11 min-w-0 flex-1 rounded-xl bg-ink/[0.04] px-3 text-[16px] outline-none focus:bg-ink/[0.06]",
+                    saveErr?.title && "bg-danger/5 ring-2 ring-danger",
+                  )}
                 />
-                <PinInput label="명단 PIN" value={savePin} onChange={setSavePin} />
+                <PinInput
+                  id="roster-save-pin"
+                  label="명단 PIN"
+                  value={savePin}
+                  invalid={saveErr?.pin}
+                  onChange={(v) => {
+                    setSavePin(v);
+                    setSaveErr((x) => (x ? { ...x, pin: false } : x));
+                  }}
+                  onEnter={saveNew}
+                />
               </div>
+              {(saveErr?.title || saveErr?.pin) && (
+                <p className="mt-1.5 text-[12.5px] font-medium text-danger">
+                  {saveErr.title && saveErr.pin ? "명단 이름과 PIN 4자리를 입력해 주세요" : saveErr.title ? "명단 이름을 입력해 주세요" : "명단을 잠글 PIN 4자리를 입력해 주세요"}
+                </p>
+              )}
               <div className="mt-2 grid grid-cols-[1fr_1.6fr] gap-2">
                 <Button variant="secondary" size="md" onClick={() => setSaving(false)}>
                   취소
                 </Button>
-                <Button size="md" loading={busy} disabled={!saveTitle.trim() || savePin.length !== 4} onClick={saveNew}>
+                <Button size="md" loading={busy} onClick={saveNew}>
                   보관함에 저장
                 </Button>
               </div>

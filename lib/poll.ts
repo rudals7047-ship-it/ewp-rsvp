@@ -1,5 +1,5 @@
 import { type PlaceSnap, type Region, parseSnap, regionOf } from "./places";
-import type { Answer, Poll, PollDetail, PollResponse, PollSummary, Question, QuestionKind } from "./types";
+import type { Answer, Poll, PollDetail, PollResponse, PollSummary, Question, QuestionKind, Stage, StageState } from "./types";
 import { ATTEND, ATTEND_OPTIONS } from "./types";
 
 export const LIMITS = {
@@ -24,7 +24,53 @@ export function pollStatus(p: Pick<Poll, "closed" | "deadline" | "eventAt">, now
   return "open" as const;
 }
 
+const TOPIC_LABEL = { place: "식당 투표", menu: "메뉴 선택" } as const;
+
+/**
+ * 투표 진행 단계 (예: 식당 투표 ✓ → 메뉴 선택 ● ). withDetail=false면 확정값(식당 이름 등)은 숨김
+ */
+export function pollStages(p: Poll, withDetail: boolean): { stages: Stage[]; label: string } {
+  const closed = pollStatus(p) === "closed";
+  const round = p.round ?? 1;
+  const decided = p.decisions ?? {};
+  const stages: Stage[] = [];
+  if (p.place) stages.push({ label: "장소 확정", state: "done", detail: withDetail ? p.place : undefined });
+  const choice = p.questions.filter((q) => q.kind === "single" || q.kind === "multi");
+  const rounds = Array.from(new Set(choice.map((q) => q.round ?? 1))).sort((a, b) => a - b);
+  for (const r of rounds) {
+    const qs = choice.filter((q) => (q.round ?? 1) === r);
+    const topics = Array.from(new Set(qs.map((q) => q.topic).filter(Boolean))) as ("place" | "menu")[];
+    const label =
+      topics.length === 2
+        ? "식당·메뉴 투표"
+        : topics.length === 1
+          ? TOPIC_LABEL[topics[0]]
+          : rounds.length > 1
+            ? `${r}차 투표`
+            : "투표";
+    const allDecided = qs.every((q) => decided[q.id]);
+    const state: StageState = closed || r < round || allDecided ? "done" : "current";
+    const d = qs.map((q) => decided[q.id]).filter(Boolean).join(", ");
+    stages.push({ label, state, detail: withDetail && d ? d : undefined });
+  }
+  if (!rounds.length) stages.push({ label: p.questions.some((q) => q.kind === "attendance") ? "참석 확인" : "의견 수렴", state: closed ? "done" : "current" });
+  // 식당 확정 후 메뉴를 받기로 했는데 아직 메뉴 질문이 없으면 예정 단계로 표시
+  if (p.menuLater && !choice.some((q) => q.topic === "menu")) stages.push({ label: "메뉴 선택", state: "todo" });
+  stages.push({ label: "마감", state: closed ? "done" : "todo" });
+  const current = stages.find((x) => x.state === "current");
+  const next = stages.find((x) => x.state === "todo" && x.label !== "마감");
+  const label = closed
+    ? "마감"
+    : current
+      ? `${current.label} 중`
+      : next
+        ? `${next.label} 준비 중`
+        : "진행 중";
+  return { stages, label };
+}
+
 export function toSummary(p: Poll, responseCount: number): PollSummary {
+  const { stages, label } = pollStages(p, false);
   return {
     id: p.id,
     team: p.team,
@@ -37,6 +83,8 @@ export function toSummary(p: Poll, responseCount: number): PollSummary {
     responseCount,
     round: p.round ?? 1,
     region: p.region ?? "ulsan",
+    stageLabel: label,
+    stages,
   };
 }
 
@@ -44,6 +92,8 @@ export function toSummary(p: Poll, responseCount: number): PollSummary {
 export function toDetail(p: Poll, responses: PollResponse[], requesterHash?: string | null): PollDetail {
   return {
     ...toSummary(p, responses.length),
+    stages: pollStages(p, true).stages,
+    hasAdminPin: !!p.adminPinHash,
     note: p.note,
     place: p.place,
     roster: p.roster,
@@ -83,6 +133,8 @@ export interface CreateInput {
   note?: string;
   place?: string;
   roster?: string[];
+  menuLater?: boolean;
+  adminPin?: string;
   region: Region;
   placeInfo?: Record<string, PlaceSnap>;
   template: "meal" | "general";
@@ -119,8 +171,30 @@ export function parseQuestion(raw: unknown, allowAttendance: boolean): Parsed<Qu
       options,
       required: kind === "text" ? false : q.required !== false,
       onlyIfAttending: kind !== "attendance" && q.onlyIfAttending !== false ? true : undefined,
+      topic: (kind === "single" || kind === "multi") && (q.topic === "place" || q.topic === "menu") ? q.topic : undefined,
+      optionGroups: parseGroups(q.optionGroups, options),
     },
   };
+}
+
+function parseGroups(v: unknown, options: string[]) {
+  if (!v || typeof v !== "object") return undefined;
+  const out: Record<string, string> = {};
+  for (const [k, g] of Object.entries(v as Record<string, unknown>)) {
+    if (options.includes(k) && typeof g === "string" && g.trim()) out[k] = g.trim().slice(0, LIMITS.option);
+  }
+  return Object.keys(out).length ? out : undefined;
+}
+
+/** 식당과 연계된 메뉴 질문: 참여자가 고른 식당의 메뉴만 (선택 없으면 전체) */
+export function allowedOptions(poll: QLike, q: Question, answers: Record<string, Answer>) {
+  if (!q.optionGroups) return q.options;
+  const placeQ = poll.questions.find((x) => x.topic === "place");
+  const picked = placeQ ? answers[placeQ.id] : undefined;
+  const places = new Set(Array.isArray(picked) ? picked : picked ? [picked] : []);
+  if (!places.size) return q.options;
+  const list = q.options.filter((o) => !q.optionGroups![o] || places.has(q.optionGroups![o]));
+  return list.length ? list : q.options;
 }
 
 export function parseRoster(v: unknown) {
@@ -146,6 +220,9 @@ export function parseCreate(body: unknown): Parsed<CreateInput> {
   if (!team) return { ok: false, error: "팀을 선택해 주세요." };
   if (!title) return { ok: false, error: "제목을 입력해 주세요." };
   if (!/^\d{4}$/.test(pin)) return { ok: false, error: "PIN은 숫자 4자리여야 해요." };
+  const adminPin = typeof b.adminPin === "string" && b.adminPin ? b.adminPin : undefined;
+  if (adminPin !== undefined && !/^\d{4}$/.test(adminPin)) return { ok: false, error: "관리자 PIN은 숫자 4자리여야 해요." };
+  if (adminPin && adminPin === pin) return { ok: false, error: "관리자 PIN은 참여 PIN과 달라야 해요." };
 
   const rawQs = Array.isArray(b.questions) ? b.questions.slice(0, LIMITS.questions) : [];
   const questions: Question[] = [];
@@ -186,6 +263,8 @@ export function parseCreate(body: unknown): Parsed<CreateInput> {
       note: str(b.note, LIMITS.note) || undefined,
       place: str(b.place, LIMITS.place) || undefined,
       roster: parseRoster(b.roster),
+      menuLater: b.menuLater === true || undefined,
+      adminPin,
       region: regionOf(b.region),
       placeInfo: Object.keys(placeInfo).length ? placeInfo : undefined,
       template,
@@ -226,6 +305,17 @@ export function parseAnswers(poll: QLike, raw: unknown): { ok: true; answers: Re
     } else if (typeof v === "string" && q.options.includes(v)) {
       answers[q.id] = v;
     }
+  }
+  // 식당 연계 메뉴: 고르지 않은 식당의 메뉴는 제거
+  for (const q of poll.questions) {
+    if (!q.optionGroups || answers[q.id] === undefined) continue;
+    const ok = new Set(allowedOptions(poll, q, answers));
+    const v = answers[q.id];
+    if (Array.isArray(v)) {
+      const kept = v.filter((x) => ok.has(x));
+      if (kept.length) answers[q.id] = kept;
+      else delete answers[q.id];
+    } else if (!ok.has(v)) delete answers[q.id];
   }
   const vis = visibleQuestions(poll, answers);
   for (const q of vis) {

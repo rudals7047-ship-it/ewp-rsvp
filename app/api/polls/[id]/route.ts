@@ -30,6 +30,8 @@ export async function PATCH(req: Request, { params }: Ctx) {
     // 결과 확정 (예: 식당 확정). option이 비어 있으면 확정 취소
     const q = poll.questions.find((x) => x.id === body.questionId);
     if (!q || (q.kind !== "single" && q.kind !== "multi")) return fail("확정할 수 없는 질문이에요.");
+    // 메뉴는 각자 고르는 개인 주문이라 1개로 확정하지 않음
+    if (q.topic === "menu") return fail("메뉴는 각자 주문이라 확정할 필요가 없어요.");
     const decisions = { ...(poll.decisions ?? {}) };
     if (body.option) {
       if (!q.options.includes(body.option)) return fail("선택지를 찾을 수 없어요.");
@@ -48,7 +50,8 @@ export async function PATCH(req: Request, { params }: Ctx) {
     // 자유 입력(요청사항) 질문은 항상 마지막에 오도록 그 앞에 삽입
     const firstText = poll.questions.findIndex((q) => q.kind === "text");
     const at = firstText === -1 ? poll.questions.length : firstText;
-    poll.questions.splice(at, 0, { ...r.data, id: `q${nextId}`, round, onlyIfAttending: hasAttendance ? true : undefined });
+    const topic = poll.template === "meal" && !poll.questions.some((q) => q.topic === "menu") ? "menu" : r.data.topic;
+    poll.questions.splice(at, 0, { ...r.data, id: `q${nextId}`, round, topic, onlyIfAttending: hasAttendance ? true : undefined });
     poll.round = round;
     poll.closed = false;
   } else if (body?.action === "close") {

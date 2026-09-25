@@ -1,4 +1,4 @@
-import { hashAdmin, hashPin, randomId } from "@/lib/auth";
+import { hashAdminPin, shortId, hashAdmin, hashPin, randomId } from "@/lib/auth";
 import { fail, json, readJson } from "@/lib/http";
 import { parseCreate, toSummary } from "@/lib/poll";
 import { overLimit } from "@/lib/ratelimit";
@@ -21,9 +21,11 @@ export async function POST(req: Request) {
   }
   const parsed = parseCreate(await readJson(req));
   if (!parsed.ok) return fail(parsed.error);
-  const { pin, ...data } = parsed.data;
+  const { pin, adminPin, ...data } = parsed.data;
 
-  const id = randomId(6);
+  // 짧고 읽기 쉬운 링크 ID (충돌 시 재시도)
+  let id = shortId();
+  for (let i = 0; i < 3 && (await store.getPoll(id)); i++) id = shortId();
   const adminToken = randomId(18);
   const pinSalt = randomId(9);
   const poll: Poll = {
@@ -36,6 +38,10 @@ export async function POST(req: Request) {
     pinHash: await hashPin(pin, pinSalt),
     adminHash: await hashAdmin(adminToken),
   };
+  if (adminPin) {
+    poll.adminPinSalt = randomId(9);
+    poll.adminPinHash = await hashAdminPin(adminPin, poll.adminPinSalt);
+  }
   await store.savePoll(poll);
   // 사용한 식당은 공용 목록에서 위로 올라오도록 사용 횟수 증가
   const ids = Object.values(poll.placeInfo ?? {}).map((p) => p.id).filter(Boolean);

@@ -48,9 +48,7 @@ export function PollCard({
             <span className="live-dot relative size-1.5 rounded-full bg-[#34d399] text-[#34d399]" />
             진행 중
           </span>
-          {poll.round > 1 && (
-            <span className="shrink-0 rounded-full bg-[#f5c96a]/20 px-2.5 py-1 text-[12px] font-bold text-[#f5c96a]">{poll.round}차 투표</span>
-          )}
+          <span className="shrink-0 rounded-full bg-[#f5c96a]/20 px-2.5 py-1 text-[12px] font-bold text-[#f5c96a]">{poll.stageLabel}</span>
           {showTeam && (
             <span className="truncate rounded-full bg-white/10 px-2.5 py-1 text-[12px] font-medium text-white/80">
               {poll.team}

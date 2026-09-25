@@ -1,13 +1,14 @@
 "use client";
 
 import { AnimatePresence, motion } from "motion/react";
-import { Check, ChevronLeft, CircleHelp, Crown, Lock, UserRound, X } from "lucide-react";
-import { useMemo, useRef, useState } from "react";
+import { Check, ChevronLeft, CircleHelp, Lock, UserRound, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ApiError, api, keys, local, vibrate } from "@/lib/client";
 import { menuLabel, naverUrl } from "@/lib/places";
-import { nameKey, pendingQuestions, visibleQuestions } from "@/lib/poll";
+import { allowedOptions, nameKey, pendingQuestions, visibleQuestions } from "@/lib/poll";
 import type { Answer, PollDetail, Question } from "@/lib/types";
 import { ATTEND } from "@/lib/types";
+import { IdentityBar, StepNav } from "./Flow";
 import { PlaceInfo } from "./Places";
 import { SheetBody, SheetFooter } from "./Sheet";
 import { Button, IconButton, cx, inputCls, toast } from "./ui";
@@ -52,6 +53,37 @@ export function VoteFlow({
   );
   const step = steps[Math.min(idx, steps.length - 1)];
   const isLast = idx >= steps.length - 1;
+  // 가장 멀리 진행한 단계 (기존 응답이 있으면 전체 단계를 이미 지난 것으로 봄)
+  const [reached, setReached] = useState(() => (existing(savedName) ? 99 : 0));
+  useEffect(() => setReached((r) => Math.max(r, idx)), [idx]);
+
+  // 단계 이동줄: 확정된 질문(예: 식당)은 잠긴 완료 단계로 함께 표시
+  const stepLabel = (q: Question) =>
+    q.kind === "attendance" ? "참석" : q.kind === "text" ? "요청사항" : q.topic === "place" ? "식당" : q.topic === "menu" ? "메뉴" : q.title.length > 7 ? `${q.title.slice(0, 6)}…` : q.title;
+  const answered = (q: Question) => {
+    const v = answers[q.id];
+    return Array.isArray(v) ? v.length > 0 : v !== undefined && v !== "";
+  };
+  const navEntries: { label: string; locked?: boolean; done?: boolean; stepIndex: number }[] = [
+    { label: "이름", stepIndex: 0, done: !!name.trim() && idx > 0 },
+  ];
+  for (const q of poll.questions) {
+    if (poll.decisions[q.id]) navEntries.push({ label: stepLabel(q), locked: true, stepIndex: -1 });
+    else {
+      const si = steps.findIndex((st) => st.key === "q" && st.q.id === q.id);
+      if (si > 0) navEntries.push({ label: stepLabel(q), stepIndex: si, done: answered(q) });
+    }
+  }
+  const navItems = navEntries.map(({ label, locked, done }) => ({ label, locked, done }));
+  const navCurrent = navEntries.findIndex((e) => e.stepIndex === Math.min(idx, steps.length - 1));
+  const navReached = navEntries.reduce((m, e, i) => (e.stepIndex >= 0 && e.stepIndex <= Math.min(reached, steps.length - 1) ? i : m), 0);
+  function jumpNav(i: number) {
+    const target = navEntries[i]?.stepIndex;
+    if (target === undefined || target < 0 || target === idx) return;
+    if (target > 0 && !name.trim()) return;
+    setDir(target > idx ? 1 : -1);
+    setIdx(target);
+  }
 
   // 이미 정해진/확정된 식당: 질문 대신 안내 카드로 보여줌
   const decidedPlace = poll.questions.map((q) => poll.decisions[q.id]).find((o) => o && poll.placeInfo[o]);
@@ -123,26 +155,16 @@ export function VoteFlow({
 
   return (
     <>
-      {proxy && (
-        <div className="mx-4 mt-1 flex items-center gap-1.5 rounded-xl bg-[#fdf5e3] px-3 py-2 text-[12.5px] font-semibold text-[#8a5a12] sm:mr-14 sm:mt-4">
-          <Crown className="size-4 shrink-0" /> 관리자 대리 입력 중 · 결과에 &lsquo;대리&rsquo;로 표시돼요
+      <div className="shrink-0 space-y-2 px-3 pt-2 sm:pt-4">
+        <div className="flex items-center gap-1 pr-12">
+          <IconButton label="이전" onClick={back} className="shrink-0">
+            <ChevronLeft className="size-6" />
+          </IconButton>
+          <StepNav steps={navItems} current={navCurrent} reached={navReached} onJump={jumpNav} />
         </div>
-      )}
-      <div className="flex shrink-0 items-center gap-2 px-3 pt-2 sm:pt-4">
-        <IconButton label="이전" onClick={back}>
-          <ChevronLeft className="size-6" />
-        </IconButton>
-        <div className="flex flex-1 gap-1.5 pr-12">
-          {steps.map((_, i) => (
-            <span key={i} className="h-1 flex-1 overflow-hidden rounded-full bg-ink/[0.08]">
-              <motion.span
-                className="block h-full rounded-full bg-ink"
-                initial={false}
-                animate={{ width: i <= idx ? "100%" : "0%" }}
-                transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
-              />
-            </span>
-          ))}
+        <div className="flex flex-wrap items-center gap-1.5 px-2">
+          <IdentityBar mode={proxy ? "proxy" : "self"} name={name.trim() || null} />
+          <span className="rounded-full bg-ink/[0.05] px-2.5 py-1 text-[12px] font-semibold text-ink-3">{poll.stageLabel}</span>
         </div>
       </div>
 
@@ -251,7 +273,7 @@ export function VoteFlow({
                     ))}
                   </div>
                 )}
-                <QuestionView q={step.q} placeInfo={poll.placeInfo} answer={answers[step.q.id]} onPick={pick} onText={(v) => setAnswers({ ...answers, [step.q.id]: v })} index={idx} total={qCount} />
+                <QuestionView q={step.q} options={allowedOptions(poll, step.q, answers)} placeInfo={poll.placeInfo} answer={answers[step.q.id]} onPick={pick} onText={(v) => setAnswers({ ...answers, [step.q.id]: v })} index={idx} total={qCount} />
               </>
             )}
           </motion.div>
@@ -330,6 +352,7 @@ const ATT_STYLE: Record<string, { icon: typeof Check; on: string; iconBg: string
 
 function QuestionView({
   q,
+  options,
   placeInfo,
   answer,
   onPick,
@@ -338,6 +361,7 @@ function QuestionView({
   total,
 }: {
   q: Question;
+  options: string[];
   placeInfo: PollDetail["placeInfo"];
   answer: Answer | undefined;
   onPick: (q: Question, v: string) => void;
@@ -397,11 +421,23 @@ function QuestionView({
   const selected = multi ? ((answer as string[] | undefined) ?? []) : answer ? [answer as string] : [];
   return (
     <>
-      <StepHead eyebrow={eyebrow} title={q.title} sub={multi ? "여러 개를 고를 수 있어요." : undefined} />
+      <StepHead
+        eyebrow={eyebrow}
+        title={q.title}
+        sub={[q.optionGroups ? "고르신 식당의 메뉴만 보여드려요." : "", multi ? "여러 개를 고를 수 있어요." : ""].filter(Boolean).join(" ") || undefined}
+      />
       <div className="space-y-2">
-        {q.options.map((o, i) => {
+        {options.map((o, i) => {
           const on = selected.includes(o);
-          return (
+          // 식당별 묶음 제목 (식당 연계 메뉴일 때)
+          const group = q.optionGroups ? (q.optionGroups[o] ?? "공통 메뉴") : null;
+          const prevGroup = i > 0 && q.optionGroups ? (q.optionGroups[options[i - 1]] ?? "공통 메뉴") : null;
+          const header = group && group !== prevGroup ? (
+            <p key={`h-${group}`} className={cx("flex items-center gap-1.5 px-1 text-[13px] font-bold text-ink-2", i > 0 && "pt-3")}>
+              <span className="size-1.5 rounded-full bg-accent" /> {group}
+            </p>
+          ) : null;
+          return [header,
             <motion.button
               key={o}
               initial={{ opacity: 0, y: 6 }}
@@ -427,8 +463,8 @@ function QuestionView({
                 {o}
                 {placeInfo[o] && <PlaceLine p={placeInfo[o]} on={on} />}
               </span>
-            </motion.button>
-          );
+            </motion.button>,
+          ];
         })}
       </div>
     </>

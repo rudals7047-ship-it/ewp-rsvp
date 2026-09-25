@@ -143,21 +143,31 @@ export function Field({
   label,
   hint,
   asLabel,
+  id,
+  error,
   children,
 }: {
   label: string;
   hint?: string;
   asLabel?: boolean;
+  id?: string;
+  /** 제출 시도 후 누락 안내 (빨간 강조) */
+  error?: string | null;
   children: React.ReactNode;
 }) {
   const Tag = asLabel ? "label" : "div";
   return (
-    <Tag className="block" {...(asLabel ? {} : { role: "group", "aria-label": label })}>
+    <Tag
+      id={id}
+      className={cx("block scroll-mt-24 rounded-2xl transition", error && "-m-2 bg-danger/[0.04] p-2 ring-2 ring-danger/70")}
+      {...(asLabel ? {} : { role: "group", "aria-label": label })}
+    >
       <span className="mb-2 flex items-baseline justify-between">
-        <span className="text-[13px] font-semibold text-ink-2">{label}</span>
+        <span className={cx("text-[13px] font-semibold", error ? "text-danger" : "text-ink-2")}>{label}</span>
         {hint && <span className="text-[12px] text-ink-3">{hint}</span>}
       </span>
       {children}
+      {error && <span className="mt-2 block text-[12.5px] font-medium text-danger">{error}</span>}
     </Tag>
   );
 }

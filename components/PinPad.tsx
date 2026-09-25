@@ -1,7 +1,7 @@
 "use client";
 
 import { motion, useAnimationControls } from "motion/react";
-import { Delete, Lock, LockOpen, ShieldCheck } from "lucide-react";
+import { Delete, Loader2, Lock, LockOpen, ShieldCheck } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { vibrate } from "@/lib/client";
 import { cx } from "./ui";
@@ -99,14 +99,22 @@ export function PinPad({
             transition={{ duration: 0.18 }}
             className={cx(
               "size-3.5 rounded-full transition-colors duration-150",
-              pin.length > i ? (busy ? "bg-ink/40" : "bg-ink") : "bg-ink/12",
+              pin.length > i || busy ? (busy ? "animate-pulse bg-ink/50" : "bg-ink") : "bg-ink/12",
             )}
           />
         ))}
       </motion.div>
 
-      <p className={cx("mb-4 h-5 text-[13px] font-medium", message ? "text-danger" : "text-transparent")}>
-        {message || "."}
+      <p aria-live="polite" className={cx("mb-4 flex h-5 items-center gap-1.5 text-[13px] font-medium", busy ? "text-ink-2" : unlocked ? "text-accent" : message ? "text-danger" : "text-transparent")}>
+        {busy ? (
+          <>
+            <Loader2 className="size-4 animate-spin" /> 확인 중…
+          </>
+        ) : unlocked ? (
+          "확인됐어요! 여는 중…"
+        ) : (
+          message || "."
+        )}
       </p>
 
       <div className="grid w-full max-w-[300px] grid-cols-3 gap-2.5">

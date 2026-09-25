@@ -30,6 +30,9 @@ import {
   local,
   missing,
   relUntil,
+  session,
+  pollUrl,
+  shareText,
   shareLink,
   summaryText,
   tally,
@@ -40,6 +43,7 @@ import { LIMITS, nameKey } from "@/lib/poll";
 import type { PollDetail, Question } from "@/lib/types";
 import { ATTEND } from "@/lib/types";
 import { ChipsInput } from "./ChipsInput";
+import { IdentityBar, StageBar } from "./Flow";
 import { MenuSuggestions, PlaceInfo } from "./Places";
 import { SheetBody, SheetFooter } from "./Sheet";
 import { Button, Toggle, cx, inputCls, toast } from "./ui";
@@ -61,7 +65,8 @@ export function Results({
   onChange: (p: PollDetail) => void;
   onDeleted: () => void;
 }) {
-  const isAdmin = !!local.get(keys.admin(poll.id));
+  const [adminTick, setAdminTick] = useState(0);
+  const isAdmin = adminTick >= 0 && !!local.get(keys.admin(poll.id));
   const open = poll.status === "open";
   const end = poll.deadline ?? poll.eventAt;
   const left = end ? relUntil(end) : null;
@@ -105,18 +110,10 @@ export function Results({
     <>
       <SheetBody className="pb-6 pt-3 sm:pt-7">
         <div className="mb-5 pr-10">
-          <div className="mb-2 flex flex-wrap items-center gap-1.5 text-[12px] font-semibold">
-            <span className="rounded-full bg-ink/[0.05] px-2.5 py-1 text-ink-2">{poll.team}</span>
-            {open ? (
-              <span className="rounded-full bg-accent-soft px-2.5 py-1 text-accent">
-                {poll.round > 1 ? `${poll.round}차 ` : ""}진행 중{left && ` · ${left} 남음`}
-              </span>
-            ) : (
-              <span className="rounded-full bg-ink/[0.05] px-2.5 py-1 text-ink-3">마감됨</span>
-            )}
-            <span className="inline-flex items-center gap-1 rounded-full bg-ink/[0.05] px-2.5 py-1 text-ink-3">
-              <LockOpen className="size-3" strokeWidth={2.6} /> PIN 인증됨
-            </span>
+          <div className="mb-2 flex flex-wrap items-center gap-1.5">
+            <IdentityBar mode={isAdmin ? "admin" : mine ? "self" : "guest"} name={isAdmin ? null : (mine?.name ?? myName)} />
+            <span className="rounded-full bg-ink/[0.05] px-2.5 py-1 text-[12px] font-semibold text-ink-2">{poll.team}</span>
+            {open && left && <span className="rounded-full bg-ink/[0.05] px-2.5 py-1 text-[12px] font-semibold text-ink-3">마감까지 {left}</span>}
           </div>
           <h2 className="text-[22px] font-bold leading-snug tracking-tight">{poll.title}</h2>
           {poll.eventAt && (
@@ -126,7 +123,24 @@ export function Results({
             </p>
           )}
           {poll.note && <p className="mt-2 whitespace-pre-line text-[14px] leading-relaxed text-ink-2">{poll.note}</p>}
+          <StageBar stages={poll.stages} className="mt-3" />
         </div>
+
+        {/* 관리자 빠른 작업 */}
+        {isAdmin && (
+          <div className="mb-5 grid grid-cols-2 gap-2">
+            <Button variant="secondary" size="md" onClick={() => onProxy()}>
+              <PencilLine className="size-4" /> 대신 입력·수정
+            </Button>
+            <Button
+              variant="secondary"
+              size="md"
+              onClick={() => document.getElementById("admin-menu")?.scrollIntoView({ behavior: "smooth", block: "center" })}
+            >
+              <Crown className="size-4 text-[#c79a3a]" /> 관리자 메뉴
+            </Button>
+          </div>
+        )}
 
         {/* 확정 정보 */}
         {(poll.place || decidedList.length > 0) && (
@@ -245,13 +259,11 @@ export function Results({
             variant="secondary"
             size="md"
             onClick={async () => {
+              // 개인정보: 공유 메시지에는 미응답자 실명 대신 인원수만
               const r = await shareLink(
-                `${location.origin}/p/${poll.id}`,
+                pollUrl(poll.id),
                 poll.title,
-                // 개인정보: 공유 메시지에는 미응답자 실명을 넣지 않고 인원만 표기
-                miss?.length
-                  ? `[${poll.team}] ${poll.title}\n아직 ${miss.length}명이 응답 전이에요. 참여 부탁드려요!\n🔒 PIN은 담당자에게 확인하세요`
-                  : `[${poll.team}] ${poll.title}\n🔒 PIN은 담당자에게 확인하세요`,
+                `${shareText(poll)}${miss?.length ? `\n🙋 아직 ${miss.length}명이 응답 전이에요` : ""}\n🔒 참여 PIN은 담당자에게 확인하세요`,
               );
               if (r === "copied") toast("링크를 복사했어요");
             }}
@@ -261,7 +273,7 @@ export function Results({
         </div>
 
         {isAdmin && (
-          <div className="mt-6 rounded-2xl border border-line p-4">
+          <div id="admin-menu" className="mt-6 rounded-2xl border border-line p-4">
             <p className="mb-3 flex items-center gap-1.5 text-[13px] font-semibold text-ink-2">
               <Crown className="size-4 text-[#c79a3a]" /> 관리자 메뉴
             </p>
@@ -301,6 +313,7 @@ export function Results({
             )}
           </div>
         )}
+        {!isAdmin && <AdminLogin poll={poll} onDone={(p) => { onChange(p); setAdminTick((t) => t + 1); }} />}
       </SheetBody>
 
       {open && (
@@ -321,6 +334,61 @@ export function Results({
 }
 
 /** 관리자: 잘못된 응답·장난 응답 초기화 (두 번 탭해서 확인) */
+/** 다른 기기(카톡 내 브라우저 등)에서도 관리자 PIN으로 관리자 모드 전환 */
+function AdminLogin({ poll, onDone }: { poll: PollDetail; onDone: (p: PollDetail) => void }) {
+  const [open, setOpen] = useState(false);
+  const [pin, setPin] = useState("");
+  const [busy, setBusy] = useState(false);
+  if (!poll.hasAdminPin) return null;
+  async function submit() {
+    setBusy(true);
+    try {
+      const r = await api.adminLogin(poll.id, pin);
+      local.set(keys.admin(poll.id), r.adminToken);
+      session.set(keys.access(poll.id), r.token);
+      toast("관리자 모드로 전환했어요");
+      onDone(r.poll);
+    } catch (e) {
+      toast(e instanceof ApiError ? (e.data.attemptsLeft !== undefined ? `관리자 PIN이 달라요 (남은 시도 ${e.data.attemptsLeft}회)` : e.message) : "실패했어요");
+      setPin("");
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <div className="mt-6 text-center">
+      {!open ? (
+        <button type="button" onClick={() => setOpen(true)} className="inline-flex items-center gap-1 text-[13px] font-semibold text-ink-3 underline underline-offset-4">
+          <Crown className="size-3.5" /> 투표를 만든 분인가요? 관리자 모드로 전환
+        </button>
+      ) : (
+        <div className="rounded-2xl border border-line p-3 text-left">
+          <p className="mb-2 text-[12.5px] text-ink-3">만들 때 정한 관리자 PIN 4자리를 입력하세요.</p>
+          <div className="flex gap-2">
+            <input
+              type="password"
+              inputMode="numeric"
+              pattern="[0-9]*"
+              autoComplete="off"
+              autoFocus
+              maxLength={4}
+              aria-label="관리자 PIN"
+              value={pin}
+              onChange={(e) => setPin(e.target.value.replace(/\D/g, "").slice(0, 4))}
+              onKeyDown={(e) => e.key === "Enter" && pin.length === 4 && submit()}
+              placeholder="PIN"
+              className="h-11 w-[92px] shrink-0 rounded-xl bg-ink/[0.04] px-3 text-center text-[18px] font-bold tracking-[0.4em] outline-none placeholder:text-[14px] placeholder:font-medium placeholder:tracking-normal focus:bg-ink/[0.06]"
+            />
+            <Button size="md" className="flex-1" loading={busy} disabled={pin.length !== 4} onClick={submit}>
+              관리자 모드로 전환
+            </Button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ResponseManager({ poll, onChange }: { poll: PollDetail; onChange: (p: PollDetail) => void }) {
   const [armed, setArmed] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
@@ -463,16 +531,18 @@ function Bars({
   }).length;
   const max = Math.max(1, ...t.map((x) => x.count));
   const leader = t[0]?.count ? t[0].option : null;
+  // 메뉴는 1등을 뽑는 투표가 아니라 개인별 주문 집계
+  const isMenu = q.topic === "menu";
 
   return (
     <section>
       <SectionTitle right={`${voters}명 응답${q.kind === "multi" ? " · 복수 선택" : ""}${(q.round ?? 1) > 1 ? ` · ${q.round}차` : ""}`}>
-        {q.title}
+        {isMenu ? "메뉴 주문 집계" : q.title}
       </SectionTitle>
       <div className="space-y-2">
         {t.map((x, i) => {
           const isDecided = decided === x.option;
-          const top = !decided && x.count > 0 && x.count === t[0].count;
+          const top = !isMenu && !decided && x.count > 0 && x.count === t[0].count;
           const strong = isDecided || top;
           const pct = voters ? Math.round((x.count / voters) * 100) : 0;
           const selectable = picking;
@@ -504,10 +574,19 @@ function Bars({
                     top && <Crown className="mr-1 inline size-4 -translate-y-px" />
                   )}
                   {x.option}
+                  {q.optionGroups?.[x.option] && (
+                    <span className={cx("ml-1.5 text-[12px] font-medium", strong ? "text-white/60" : "text-ink-3")}>{q.optionGroups[x.option]}</span>
+                  )}
                   {isDecided && <span className="ml-1.5 rounded-md bg-[#6ee7b7]/20 px-1.5 py-px text-[11.5px] font-bold text-[#6ee7b7]">확정</span>}
                 </span>
                 <span className={cx("shrink-0 text-[14px] font-bold tabular-nums", strong ? "text-white" : "text-ink-2")}>
-                  {x.count}표 <span className="font-medium opacity-70">{pct}%</span>
+                  {isMenu ? (
+                    `${x.count}명`
+                  ) : (
+                    <>
+                      {x.count}표 <span className="font-medium opacity-70">{pct}%</span>
+                    </>
+                  )}
                 </span>
               </div>
               {x.names.length > 0 && (
@@ -520,7 +599,7 @@ function Bars({
         })}
       </div>
 
-      {isAdmin && (
+      {isAdmin && !isMenu && (
         <AnimatePresence initial={false} mode="wait">
           {picking ? (
             <motion.div key="pick" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="mt-3">
