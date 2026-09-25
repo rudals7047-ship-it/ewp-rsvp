@@ -19,10 +19,11 @@ import {
   UtensilsCrossed,
   X,
 } from "lucide-react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { ApiError, api, copyText, josa, pollUrl, shareText, fmtDate, keys, kstToIso, kstToday, local, shareLink, track } from "@/lib/client";
 import { LIMITS, teamKey } from "@/lib/poll";
-import { type Place, type Region, menuLabel, toSnap } from "@/lib/places";
+import { ORG_TEAMS, orgTeamList } from "@/lib/teams";
+import { REGIONS, type Place, type Region, koIncludes, menuLabel, toSnap } from "@/lib/places";
 import type { QuestionKind, Template } from "@/lib/types";
 import { ChipsInput } from "./ChipsInput";
 import { RosterField } from "./Rosters";
@@ -92,13 +93,23 @@ export function CreateSheet({
   // 팀은 자동으로 채우지 않음 (의도치 않은 팀으로 만들어지지 않게). 보고 있던 팀을 맨 앞에 보여주기만 함
   const [team, setTeam] = useState("");
   const [teamQuery, setTeamQuery] = useState("");
-  const [addingTeam, setAddingTeam] = useState(!teams.length);
+  const [addingTeam, setAddingTeam] = useState(false);
+  const [teamBrowse, setTeamBrowse] = useState(false);
+  // 미리 만든 부서 목록 + 이미 투표가 있는 팀 (띄어쓰기·대소문자 차이는 하나로)
+  const allTeams = useMemo(() => {
+    const seen = new Map<string, string>();
+    for (const t of [...orgTeamList(region), ...teams]) if (!seen.has(teamKey(t))) seen.set(teamKey(t), t);
+    return [...seen.values()];
+  }, [region, teams]);
   // 새 팀으로 입력한 이름이 기존 팀과 띄어쓰기·대소문자만 다르면 기존 팀을 씀
-  const teamMatch = addingTeam && team.trim() ? teams.find((t) => teamKey(t) === teamKey(team)) : undefined;
+  const teamMatch = addingTeam && team.trim() ? allTeams.find((t) => teamKey(t) === teamKey(team)) : undefined;
   const finalTeam = (teamMatch ?? team).trim().replace(/\s+/g, " ");
-  const teamList = (defaultTeam && teams.includes(defaultTeam) ? [defaultTeam, ...teams.filter((t) => t !== defaultTeam)] : teams).filter(
-    (t) => !teamQuery.trim() || t.toLowerCase().includes(teamQuery.trim().toLowerCase()),
-  );
+  // 검색어가 없으면 투표가 있는 팀(보고 있던 팀 먼저), 있으면 전체 부서에서 검색
+  const teamList = teamQuery.trim()
+    ? allTeams.filter((t) => koIncludes(t, teamQuery)).slice(0, 24)
+    : defaultTeam && teams.includes(defaultTeam)
+      ? [defaultTeam, ...teams.filter((t) => t !== defaultTeam)]
+      : teams;
   const [title, setTitle] = useState("");
   // 오후 6시가 지났으면 기본 날짜를 내일로
   const [date, setDate] = useState(() => (new Date(Date.now() + 9 * 3600_000).toISOString().slice(11, 16) >= "18:00" ? kstToday(1) : kstToday()));
@@ -332,29 +343,32 @@ export function CreateSheet({
                 <Head title={isMeal ? "모임 정보" : "투표 정보"} />
                 <div className="space-y-6">
                   <Field label="팀" id="f-team" error={ferr("team")} hint={team && !addingTeam ? `선택: ${team}` : "직접 선택해 주세요"}>
-                    {teams.length > 6 && !addingTeam && (
+                    {!addingTeam && (
                       <input
                         value={teamQuery}
                         onChange={(e) => setTeamQuery(e.target.value)}
-                        placeholder="팀 이름 검색"
+                        placeholder="부서 이름 검색 (예: 회계, ㅎㄱ)"
                         aria-label="팀 이름 검색"
                         autoComplete="off"
                         className={cx(inputCls, "mb-2.5 h-11 text-[15px]")}
                       />
                     )}
+                    {!addingTeam && !teamQuery.trim() && teamList.length > 0 && <p className="mb-1.5 text-[12px] font-semibold text-ink-3">투표가 있는 팀</p>}
                     <div className="flex flex-wrap gap-2">
-                      {teamList.map((t) => (
-                        <Chip
-                          key={t}
-                          on={!addingTeam && team === t}
-                          onClick={() => {
-                            setTeam(t);
-                            setAddingTeam(false);
-                          }}
-                        >
-                          {t}
-                        </Chip>
-                      ))}
+                      {!addingTeam &&
+                        teamList.map((t) => (
+                          <Chip
+                            key={t}
+                            on={team === t}
+                            onClick={() => {
+                              setTeam(t);
+                              setTeamQuery("");
+                            }}
+                          >
+                            {t}
+                          </Chip>
+                        ))}
+                      {!addingTeam && teamQuery.trim() && !teamList.length && <p className="w-full text-[13px] text-ink-3">목록에 없는 이름이에요.</p>}
                       {!addingTeam && (
                         <Chip
                           on={false}
@@ -364,10 +378,44 @@ export function CreateSheet({
                             setTeam(teamQuery.trim());
                           }}
                         >
-                          <Plus className="size-4" /> {teamQuery.trim() && !teamList.length ? `'${teamQuery.trim()}' 새 팀으로` : "새 팀"}
+                          <Plus className="size-4" /> {teamQuery.trim() && !teamList.length ? `'${teamQuery.trim()}' 새 팀으로` : "직접 입력"}
                         </Chip>
                       )}
                     </div>
+                    {/* 선택한 팀이 위 칩에 없을 때(전체 목록에서 고른 경우) 표시 */}
+                    {!addingTeam && team && !teamList.includes(team) && (
+                      <p className="mt-2 text-[13px] font-semibold text-ink-2">
+                        선택: <span className="rounded-full bg-ink px-2.5 py-1 text-white">{team}</span>
+                      </p>
+                    )}
+                    {!addingTeam && !teamQuery.trim() && (
+                      <button type="button" onClick={() => setTeamBrowse((v) => !v)} className="mt-3 text-[13px] font-semibold text-ink-2 underline underline-offset-4">
+                        {teamBrowse ? "전체 부서 목록 접기" : `전체 부서 목록 보기 (${REGIONS.find((r) => r.id === region)?.label} ${orgTeamList(region).length}곳)`}
+                      </button>
+                    )}
+                    {!addingTeam && !teamQuery.trim() && teamBrowse && (
+                      <div className="mt-2 max-h-72 space-y-3 overflow-y-auto rounded-2xl bg-ink/[0.03] p-3">
+                        {ORG_TEAMS[region].map((g) => (
+                          <div key={g.group}>
+                            <p className="mb-1.5 text-[11.5px] font-bold text-ink-3">{g.group}</p>
+                            <div className="flex flex-wrap gap-1.5">
+                              {g.teams.map((t) => (
+                                <Chip
+                                  key={t}
+                                  on={team === t}
+                                  onClick={() => {
+                                    setTeam(t);
+                                    setTeamBrowse(false);
+                                  }}
+                                >
+                                  {t}
+                                </Chip>
+                              ))}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                     {addingTeam && (
                       <input
                         autoFocus={teams.length > 0}
@@ -375,8 +423,20 @@ export function CreateSheet({
                         onChange={(e) => setTeam(e.target.value)}
                         maxLength={LIMITS.team}
                         placeholder="팀 이름 (예: 회계세무부)"
-                        className={cx(inputCls, teams.length ? "mt-2.5" : "")}
+                        className={cx(inputCls, "mt-2.5")}
                       />
+                    )}
+                    {addingTeam && !teamMatch && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAddingTeam(false);
+                          setTeam("");
+                        }}
+                        className="mt-2 text-[13px] font-semibold text-ink-2 underline underline-offset-4"
+                      >
+                        목록에서 고르기
+                      </button>
                     )}
                     {teamMatch && (
                       <p className="mt-2 rounded-xl bg-accent-soft px-3 py-2 text-[13px] font-medium text-[#0b6b51]">

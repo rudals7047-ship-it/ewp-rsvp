@@ -3,6 +3,7 @@ import { fail, json, readJson } from "@/lib/http";
 import { autoAdvance, parseCreate, teamKey, toSummary } from "@/lib/poll";
 import { overLimit } from "@/lib/ratelimit";
 import { getStore } from "@/lib/store";
+import { orgTeamList } from "@/lib/teams";
 import type { Poll } from "@/lib/types";
 
 export async function GET() {
@@ -32,6 +33,11 @@ export async function POST(req: Request) {
   // 이미 있는 팀과 띄어쓰기·대소문자만 다르면 기존 표기로 맞춤 (팀 중복 방지)
   const same = (await store.listPolls(200)).find(({ poll: p }) => (p.region ?? "ulsan") === (data.region ?? "ulsan") && teamKey(p.team) === teamKey(data.team));
   if (same) data.team = same.poll.team;
+  else {
+    // 미리 만든 부서 목록과 같으면 목록의 표기로 (예: "회계 세무부" → "회계세무부")
+    const org = orgTeamList(data.region ?? "ulsan").find((t) => teamKey(t) === teamKey(data.team));
+    if (org) data.team = org;
+  }
 
   // 짧고 읽기 쉬운 링크 ID (충돌 시 재시도)
   let id = shortId();
