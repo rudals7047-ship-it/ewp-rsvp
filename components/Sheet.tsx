@@ -93,5 +93,8 @@ export function SheetBody({ className, children }: { className?: string; childre
 }
 
 export function SheetFooter({ children, className }: { children: React.ReactNode; className?: string }) {
-  return <div className={cx("pb-safe shrink-0 border-t border-line/60 bg-surface px-5 pt-3 sm:px-7", className)}>{children}</div>;
+  // className에 pb-가 있으면 안전영역 패딩(pb-safe) 대신 사용 (하단 고정 바 위에 놓일 때)
+  return (
+    <div className={cx(!className?.includes("pb-") && "pb-safe", "shrink-0 border-t border-line/60 bg-surface px-5 pt-3 sm:px-7", className)}>{children}</div>
+  );
 }

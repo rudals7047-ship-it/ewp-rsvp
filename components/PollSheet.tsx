@@ -2,18 +2,20 @@
 
 import confetti from "canvas-confetti";
 import { motion } from "motion/react";
-import { Loader2 } from "lucide-react";
+import { BarChart3, ChevronDown, Crown, Loader2, PencilLine, UserRound, Users } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ApiError, api, keys, local, session, track, vibrate } from "@/lib/client";
+import { ApiError, api, keys, local, progressTable, relUntil, session, track, vibrate } from "@/lib/client";
 import { nameKey, pendingQuestions } from "@/lib/poll";
 import type { Answer, PollDetail, PollSummary } from "@/lib/types";
+import { StageBar } from "./Flow";
 import { PinPad } from "./PinPad";
 import { Results } from "./Results";
 import { Sheet, SheetBody, SheetFooter } from "./Sheet";
 import { VoteFlow } from "./VoteFlow";
-import { Button, toast } from "./ui";
+import { Button, cx, toast } from "./ui";
 
-type Phase = "loading" | "pin" | "vote" | "proxy" | "done" | "results";
+type Phase = "loading" | "pin" | "main" | "done";
+type Tab = "respond" | "status" | "results" | "admin";
 
 export function PollSheet({
   summary,
@@ -31,7 +33,13 @@ export function PollSheet({
   const [pinMsg, setPinMsg] = useState<string | null>(null);
   const [myName, setMyName] = useState<string | null>(null);
   const [myAnswers, setMyAnswers] = useState<Record<string, Answer> | null>(null);
-  const [proxyName, setProxyName] = useState<string | undefined>();
+  const [tab, setTab] = useState<Tab>("status");
+  // 응답 탭의 명의: 본인 / 관리자 대리(proxy)
+  const [proxy, setProxy] = useState<{ name?: string } | null>(null);
+  const [proxyWho, setProxyWho] = useState<string | null>(null);
+  useEffect(() => setProxyWho(null), [proxy]);
+  const [respondKey, setRespondKey] = useState(0);
+  const [adminTick, setAdminTick] = useState(0);
   const id = summary?.id;
 
   const route = useCallback((p: PollDetail) => {
@@ -43,7 +51,8 @@ export function PollSheet({
     if (mine && !needs) local.set(`done:${p.id}`, String(p.round));
     // 만든 사람(관리자)은 관리/결과 화면부터: 참여는 하단 버튼으로
     const isAdmin = !!local.get(keys.admin(p.id));
-    setPhase(p.status === "open" && needs && !isAdmin ? "vote" : "results");
+    setPhase("main");
+    setTab(p.status === "open" && needs && !isAdmin ? "respond" : "status");
   }, []);
 
   const accept = useCallback(
@@ -81,13 +90,13 @@ export function PollSheet({
 
   // 결과 화면에서는 실시간에 가깝게 갱신
   useEffect(() => {
-    if (!id || phase !== "results") return;
+    if (!id || phase !== "main" || tab === "respond") return;
     const t = setInterval(() => {
       if (document.visibilityState !== "visible") return;
       api.detail(id).then(({ poll }) => accept(poll)).catch(() => {});
     }, 10000);
     return () => clearInterval(t);
-  }, [id, phase, accept]);
+  }, [id, phase, tab, accept]);
 
   const unlock = useCallback(
     async (pin: string) => {
@@ -134,54 +143,219 @@ export function PollSheet({
           />
         </SheetBody>
       )}
-      {phase === "vote" && poll && (
-        <VoteFlow
-          poll={poll}
-          onCancel={() => (poll.responses.length || poll.status !== "open" ? setPhase("results") : onClose())}
-          onDone={(p, name, answers) => {
-            accept(p);
-            setMyName(name);
-            setMyAnswers(answers);
-            local.set(`done:${p.id}`, String(p.round));
-            track("vote-complete");
-            setPhase("done");
-          }}
-        />
-      )}
-      {phase === "proxy" && poll && (
-        <VoteFlow
-          key={`proxy-${proxyName ?? ""}`}
-          poll={poll}
-          proxy={{ initialName: proxyName }}
-          onCancel={() => setPhase("results")}
-          onDone={(p, name) => {
-            accept(p);
-            toast(`${name}님의 응답을 대신 저장했어요`);
-            track("vote-proxy");
-            setPhase("results");
-          }}
-        />
+      {phase === "main" && poll && (
+        <>
+          <PollHeader poll={poll} showStages={tab !== "respond"} />
+          {tab === "respond" &&
+            (poll.status === "open" || (proxy && isAdminOf(poll)) ? (
+              <VoteFlow
+                key={`${proxy ? `p-${proxy.name ?? ""}` : "self"}-${respondKey}`}
+                poll={poll}
+                proxy={proxy ? { initialName: proxy.name } : undefined}
+                onWho={proxy ? setProxyWho : undefined}
+                onCancel={() => setTab("status")}
+                onDone={(p, name, answers) => {
+                  accept(p);
+                  if (proxy) {
+                    toast(`${name}님의 응답을 대신 저장했어요`);
+                    track("vote-proxy");
+                    setProxy(null);
+                    setTab("status");
+                    return;
+                  }
+                  setMyName(name);
+                  setMyAnswers(answers);
+                  local.set(`done:${p.id}`, String(p.round));
+                  track("vote-complete");
+                  setPhase("done");
+                }}
+              />
+            ) : (
+              <SheetBody className="py-10 text-center text-[14px] text-ink-3">마감된 투표예요. 현황·결과 탭에서 확인하세요.</SheetBody>
+            ))}
+          {tab !== "respond" && (
+            <Results
+              key={adminTick}
+              poll={poll}
+              myName={myName}
+              view={tab}
+              onGoto={setTab}
+              onAdminChange={() => setAdminTick((t) => t + 1)}
+              onProxy={(name) => {
+                setProxy({ name });
+                setTab("respond");
+              }}
+              onChange={accept}
+              onDeleted={() => {
+                onDeleted(poll.id);
+                onClose();
+              }}
+            />
+          )}
+          <Dock
+            poll={poll}
+            tab={tab}
+            myName={myName}
+            proxy={tab === "respond" && proxy ? { name: proxyWho ?? proxy.name } : null}
+            adminTick={adminTick}
+            onTab={(t) => {
+              if (t === "respond") setProxy(null);
+              setTab(t);
+            }}
+            onSelf={(forget) => {
+              if (forget) {
+                local.del(keys.name);
+                setMyName(null);
+              }
+              setProxy(null);
+              setRespondKey((k) => k + 1);
+              setTab("respond");
+            }}
+            onProxy={() => {
+              setProxy({});
+              setRespondKey((k) => k + 1);
+              setTab("respond");
+            }}
+          />
+        </>
       )}
       {phase === "done" && poll && (
-        <Done poll={poll} name={myName ?? ""} answers={myAnswers ?? {}} onResults={() => setPhase("results")} onClose={onClose} />
-      )}
-      {phase === "results" && poll && (
-        <Results
+        <Done
           poll={poll}
-          myName={myName}
-          onEdit={() => setPhase("vote")}
-          onProxy={(name) => {
-            setProxyName(name);
-            setPhase("proxy");
+          name={myName ?? ""}
+          answers={myAnswers ?? {}}
+          onResults={() => {
+            setPhase("main");
+            setTab("status");
           }}
-          onChange={accept}
-          onDeleted={() => {
-            onDeleted(poll.id);
-            onClose();
-          }}
+          onClose={onClose}
         />
       )}
     </Sheet>
+  );
+}
+
+const isAdminOf = (p: PollDetail) => !!local.get(keys.admin(p.id));
+
+/** 상단: 팀·제목 한 줄 + (현황·결과·관리 탭에서) 투표 진행 단계 */
+function PollHeader({ poll, showStages }: { poll: PollDetail; showStages: boolean }) {
+  return (
+    <div className="shrink-0 border-b border-line/70 px-5 pb-2.5 pt-2 sm:pt-5">
+      <div className="flex min-w-0 items-center gap-2 pr-10">
+        <span className="shrink-0 rounded-full bg-ink/[0.05] px-2 py-0.5 text-[11.5px] font-semibold text-ink-2">{poll.team}</span>
+        <h2 className="truncate text-[16px] font-bold tracking-tight">{poll.title}</h2>
+      </div>
+      {showStages && <StageBar stages={poll.stages} className="mt-2" />}
+    </div>
+  );
+}
+
+/** 하단 고정 바: 지금 누구 명의인지 + 핵심 요약 + 탭 (어느 화면에서든 한 번에 이동) */
+function Dock({
+  poll,
+  tab,
+  myName,
+  proxy,
+  adminTick,
+  onTab,
+  onSelf,
+  onProxy,
+}: {
+  poll: PollDetail;
+  tab: Tab;
+  myName: string | null;
+  proxy: { name?: string } | null;
+  adminTick: number;
+  onTab: (t: Tab) => void;
+  onSelf: (forget: boolean) => void;
+  onProxy: () => void;
+}) {
+  const [menu, setMenu] = useState(false);
+  const isAdmin = adminTick >= 0 && isAdminOf(poll);
+  const { rows, pending } = progressTable(poll);
+  const end = poll.deadline ?? poll.eventAt;
+  const left = end ? relUntil(end) : null;
+  const identity = proxy
+    ? `관리자 · ${proxy.name ? `${proxy.name}님` : "대상 선택 중"} 대신 입력`
+    : isAdmin
+      ? `관리자${myName ? ` · ${myName}` : ""}`
+      : myName
+        ? `${myName}님`
+        : "이름 선택 전";
+  const summary = [poll.status === "open" ? poll.stageLabel : "마감", rows.length ? `완료 ${rows.length - pending.length}/${rows.length}` : null, poll.status === "open" && left ? `${left} 남음` : null]
+    .filter(Boolean)
+    .join(" · ");
+  const tabs: { id: Tab; label: string; icon: typeof PencilLine; badge?: number }[] = [
+    { id: "respond", label: proxy ? "대신 입력" : "내 응답", icon: PencilLine },
+    { id: "status", label: "현황", icon: Users, badge: pending.length || undefined },
+    { id: "results", label: "결과", icon: BarChart3 },
+    ...(isAdmin || poll.hasAdminPin ? [{ id: "admin" as Tab, label: "관리", icon: Crown }] : []),
+  ];
+  const Icon = proxy || isAdmin ? Crown : UserRound;
+  return (
+    <div className="pb-safe relative shrink-0 border-t border-line bg-surface px-3 pt-2">
+      {menu && (
+        <div className="absolute inset-x-3 bottom-full mb-2 overflow-hidden rounded-2xl border border-line bg-surface shadow-lift">
+          {proxy && <MenuItem onClick={() => { setMenu(false); onSelf(false); }}>내 이름으로 응답하기</MenuItem>}
+          {!proxy && poll.status === "open" && <MenuItem onClick={() => { setMenu(false); onSelf(true); }}>다른 이름으로 응답하기 (이 기기를 함께 쓸 때)</MenuItem>}
+          {isAdmin && <MenuItem onClick={() => { setMenu(false); onProxy(); }}>👑 다른 사람 대신 입력·수정</MenuItem>}
+          {!isAdmin && poll.hasAdminPin && <MenuItem onClick={() => { setMenu(false); onTab("admin"); }}>👑 관리자 모드로 전환</MenuItem>}
+        </div>
+      )}
+      <div className="mb-2 flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => setMenu((m) => !m)}
+          aria-expanded={menu}
+          className={cx(
+            "inline-flex max-w-[60%] items-center gap-1.5 rounded-full px-3 py-1.5 text-[12.5px] font-semibold",
+            proxy || isAdmin ? "bg-[#fdf5e3] text-[#8a5a12]" : "bg-ink/[0.06] text-ink-2",
+          )}
+        >
+          <Icon className="size-3.5 shrink-0" />
+          <span className="truncate">{identity}</span>
+          <ChevronDown className={cx("size-3.5 shrink-0 transition", menu && "rotate-180")} />
+        </button>
+        <span className="min-w-0 flex-1 truncate text-right text-[12px] font-medium text-ink-3">{summary}</span>
+      </div>
+      <nav aria-label="투표 화면" className="grid gap-1" style={{ gridTemplateColumns: `repeat(${tabs.length}, minmax(0, 1fr))` }}>
+        {tabs.map((t) => {
+          const on = tab === t.id;
+          const TIcon = t.icon;
+          return (
+            <button
+              key={t.id}
+              type="button"
+              aria-current={on ? "page" : undefined}
+              onClick={() => {
+                setMenu(false);
+                onTab(t.id);
+              }}
+              className={cx(
+                "relative flex h-12 flex-col items-center justify-center gap-0.5 rounded-xl text-[11.5px] font-semibold transition active:scale-95",
+                on ? "bg-ink text-white" : "text-ink-3 hover:bg-ink/[0.04]",
+              )}
+            >
+              <TIcon className="size-[18px]" />
+              {t.label}
+              {t.badge ? (
+                <span className={cx("absolute right-2 top-1 rounded-full px-1.5 text-[10.5px] font-bold", on ? "bg-white text-ink" : "bg-[#f5c96a] text-ink")}>
+                  {t.badge}
+                </span>
+              ) : null}
+            </button>
+          );
+        })}
+      </nav>
+    </div>
+  );
+}
+
+function MenuItem({ children, onClick }: { children: React.ReactNode; onClick: () => void }) {
+  return (
+    <button type="button" onClick={onClick} className="block w-full border-b border-line/70 px-4 py-3 text-left text-[14px] font-semibold last:border-b-0 hover:bg-ink/[0.03]">
+      {children}
+    </button>
   );
 }
 
@@ -277,7 +451,7 @@ function Done({
         <Button variant="secondary" onClick={onClose}>
           닫기
         </Button>
-        <Button onClick={onResults}>결과 보기</Button>
+        <Button onClick={onResults}>현황 보기</Button>
       </SheetFooter>
     </>
   );

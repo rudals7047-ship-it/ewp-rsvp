@@ -17,6 +17,8 @@ import {
   RotateCcw,
   Share2,
   Users,
+  Phone,
+  ExternalLink,
   Trash2,
   X,
 } from "lucide-react";
@@ -40,7 +42,7 @@ import {
   tally,
   track,
 } from "@/lib/client";
-import { menuLabel } from "@/lib/places";
+import { menuLabel, naverUrl } from "@/lib/places";
 import { LIMITS, nameKey } from "@/lib/poll";
 import type { PollDetail, Question } from "@/lib/types";
 import { ATTEND } from "@/lib/types";
@@ -55,14 +57,18 @@ type AdminBody = Parameters<typeof api.admin>[1];
 export function Results({
   poll,
   myName,
-  onEdit,
+  view,
+  onGoto,
+  onAdminChange,
   onProxy,
   onChange,
   onDeleted,
 }: {
   poll: PollDetail;
   myName: string | null;
-  onEdit: () => void;
+  view: "status" | "results" | "admin";
+  onGoto: (tab: "status" | "results" | "admin") => void;
+  onAdminChange?: () => void;
   onProxy: (name?: string) => void;
   onChange: (p: PollDetail) => void;
   onDeleted: () => void;
@@ -109,64 +115,47 @@ export function Results({
     }
   }
 
+  const menuPending = isAdmin && decidedList.length > 0 && poll.template === "meal" && !poll.questions.some((q) => q.topic === "menu");
+  const placeName = poll.place ?? decidedList.map((q) => poll.decisions[q.id]).find((o) => poll.placeInfo[o]);
+
   return (
-    <>
-      <SheetBody className="pb-6 pt-3 sm:pt-7">
-        <div className="mb-5 pr-10">
-          <div className="mb-2 flex flex-wrap items-center gap-1.5">
-            <IdentityBar mode={isAdmin ? "admin" : mine ? "self" : "guest"} name={isAdmin ? null : (mine?.name ?? myName)} />
-            <span className="rounded-full bg-ink/[0.05] px-2.5 py-1 text-[12px] font-semibold text-ink-2">{poll.team}</span>
-            {open && left && <span className="rounded-full bg-ink/[0.05] px-2.5 py-1 text-[12px] font-semibold text-ink-3">마감까지 {left}</span>}
-          </div>
-          <h2 className="text-[22px] font-bold leading-snug tracking-tight">{poll.title}</h2>
-          {poll.eventAt && (
-            <p className="mt-1.5 flex items-center gap-1.5 text-[14px] text-ink-3">
-              <CalendarDays className="size-4" />
-              {fmtDate(poll.eventAt)}
-            </p>
+    <SheetBody className="pb-5 pt-3">
+      {view === "status" && (
+        <>
+          {(poll.eventAt || poll.note) && (
+            <div className="mb-3 space-y-1 text-[13.5px] text-ink-3">
+              {poll.eventAt && (
+                <p className="flex items-center gap-1.5">
+                  <CalendarDays className="size-4" /> {fmtDate(poll.eventAt)}
+                  {open && left && <span className="text-ink-3/80">· 마감까지 {left}</span>}
+                </p>
+              )}
+              {poll.note && <p className="whitespace-pre-line text-ink-2">{poll.note}</p>}
+            </div>
           )}
-          {poll.note && <p className="mt-2 whitespace-pre-line text-[14px] leading-relaxed text-ink-2">{poll.note}</p>}
-          <StageBar stages={poll.stages} className="mt-3" />
-        </div>
 
-        {/* 관리자 빠른 작업 */}
-        {isAdmin && (
-          <div className="mb-5 grid grid-cols-2 gap-2">
-            <Button variant="secondary" size="md" onClick={() => onProxy()}>
-              <PencilLine className="size-4" /> 대신 입력·수정
-            </Button>
-            <Button
-              variant="secondary"
-              size="md"
-              onClick={() => reveal(document.getElementById("admin-menu"))}
+          {/* 확정 정보: 한 줄 요약 */}
+          {placeName && poll.placeInfo[placeName] && <PlaceRow p={poll.placeInfo[placeName]} region={poll.region} fixed={!!poll.place} />}
+          {decidedList
+            .filter((q) => !poll.placeInfo[poll.decisions[q.id]])
+            .map((q) => (
+              <Decided key={q.id} icon={BadgeCheck} label={`${q.title} · 확정`} value={poll.decisions[q.id]} />
+            ))}
+
+          {menuPending && (
+            <button
+              type="button"
+              onClick={() => onGoto("admin")}
+              className="mb-3 flex w-full items-center justify-between gap-2 rounded-2xl bg-ink px-4 py-3 text-left text-white active:scale-[0.99]"
             >
-              <Crown className="size-4 text-[#c79a3a]" /> 관리자 메뉴
-            </Button>
-          </div>
-        )}
+              <span className="text-[13.5px] leading-snug">
+                <b>식당 확정 완료!</b> 이제 메뉴 투표를 열 차례예요
+              </span>
+              <span className="shrink-0 rounded-full bg-white px-3 py-1 text-[12.5px] font-bold text-ink">열기 →</span>
+            </button>
+          )}
 
-        {/* 확정 정보 */}
-        {(poll.place || decidedList.length > 0) && (
-          <div className="mb-5 space-y-2">
-            {poll.place &&
-              (poll.placeInfo[poll.place] ? (
-                <PlaceInfo p={poll.placeInfo[poll.place]} region={poll.region} label="📍 장소" dark />
-              ) : (
-                <Decided icon={MapPin} label="장소" value={poll.place} />
-              ))}
-            {decidedList.map((q) =>
-              poll.placeInfo[poll.decisions[q.id]] ? (
-                <PlaceInfo key={q.id} p={poll.placeInfo[poll.decisions[q.id]]} region={poll.region} label="✓ 확정된 식당" dark />
-              ) : (
-                <Decided key={q.id} icon={BadgeCheck} label={`${q.title} · 확정`} value={poll.decisions[q.id]} />
-              ),
-            )}
-          </div>
-        )}
-
-        {/* 응답 현황 요약 */}
-        {(hc || miss) && (
-          <div className="mb-7 grid grid-cols-2 gap-2">
+          <div className="mb-5 mt-3 grid grid-cols-2 gap-2">
             {hc && (
               <Stat
                 label="예약 인원"
@@ -175,151 +164,172 @@ export function Results({
                 tone="accent"
               />
             )}
-            {miss ? (
-              <Stat
-                label="응답 완료"
-                value={`${prog.rows.length - prog.pending.length}/${prog.rows.length}`}
-                sub={prog.pending.length ? `남은 사람 ${prog.pending.length}명` : "전원 응답 완료 🎉"}
+            <Stat
+              label="응답 완료"
+              value={miss ? `${prog.rows.length - prog.pending.length}/${prog.rows.length}` : `${prog.rows.length - prog.pending.length}명`}
+              sub={prog.pending.length ? `마무리 전 ${prog.pending.length}명` : miss ? "전원 응답 완료 🎉" : "명단 미지정"}
+            />
+          </div>
+
+          <ProgressTable poll={poll} isAdmin={isAdmin} onProxy={onProxy} />
+        </>
+      )}
+
+      {view === "results" && (
+        <>
+          {poll.responses.length === 0 ? (
+            <div className="rounded-2xl border border-dashed border-line py-10 text-center text-[14px] text-ink-3">아직 응답이 없어요.</div>
+          ) : (
+            <div className="space-y-8">
+              {poll.questions.map((q) =>
+                q.kind === "attendance" ? (
+                  <Attendance key={q.id} poll={poll} q={q} />
+                ) : q.kind === "text" ? (
+                  <Texts key={q.id} poll={poll} q={q} />
+                ) : (
+                  <Bars
+                    key={q.id}
+                    poll={poll}
+                    q={q}
+                    isAdmin={isAdmin}
+                    busy={busy !== null}
+                    onDecide={(option) =>
+                      admin({ action: "decide", questionId: q.id, option }, option ? `'${option}'(으)로 확정했어요` : "확정을 취소했어요")
+                    }
+                  />
+                ),
+              )}
+            </div>
+          )}
+          <div className="mt-8 grid grid-cols-2 gap-2">
+            <Button
+              variant="secondary"
+              size="md"
+              onClick={async () => {
+                const ok = await copyText(summaryText(poll));
+                toast(ok ? "결과를 복사했어요. 메신저에 붙여넣으세요" : "복사에 실패했어요");
+                track("results-copy");
+              }}
+            >
+              <ClipboardCopy className="size-4" /> 결과 복사
+            </Button>
+            <Button
+              variant="secondary"
+              size="md"
+              onClick={async () => {
+                // 개인정보: 공유 메시지에는 미응답자 실명 대신 인원수만
+                const r = await shareLink(
+                  pollUrl(poll.id),
+                  poll.title,
+                  `${shareText(poll)}${prog.pending.length ? `\n🙋 아직 ${prog.pending.length}명이 응답을 마치지 않았어요` : ""}\n🔒 참여 PIN은 담당자에게 확인하세요`,
+                );
+                if (r === "copied") toast("링크를 복사했어요");
+              }}
+            >
+              <Share2 className="size-4" /> {prog.pending.length ? "응답 요청" : "링크 공유"}
+            </Button>
+          </div>
+        </>
+      )}
+
+      {view === "admin" &&
+        (isAdmin ? (
+          <div className="space-y-4">
+            <Button variant="secondary" size="md" className="w-full" onClick={() => onProxy()}>
+              <PencilLine className="size-4" /> 다른 사람 응답 대신 입력·수정
+            </Button>
+
+            {/* 확정 후 다음 차수 질문 열기 */}
+            {(poll.template !== "meal" || menuPending) && (
+              <NextRound
+                key={Object.values(poll.decisions).join()}
+                poll={poll}
+                highlight={menuPending}
+                onSubmit={async (question) => {
+                  const ok = await admin({ action: "addQuestion", question }, poll.template === "meal" ? "메뉴 투표를 열었어요" : `${poll.round + 1}차 투표를 시작했어요`);
+                  if (ok) onGoto("status");
+                  return ok;
+                }}
               />
-            ) : (
-              <Stat label="응답 완료" value={`${prog.rows.length - prog.pending.length}명`} sub={prog.pending.length ? `마무리 전 ${prog.pending.length}명` : "명단 미지정"} />
             )}
-          </div>
-        )}
+            {!menuPending && poll.template === "meal" && poll.questions.some((q) => q.topic === "place") && !decidedList.length && (
+              <p className="rounded-2xl bg-ink/[0.04] px-4 py-3 text-[13px] leading-relaxed text-ink-2">
+                식당 투표가 모이면 <b>결과</b> 탭에서 식당을 <b>확정</b>하세요. 확정하면 여기서 메뉴 투표를 열 수 있어요.
+              </p>
+            )}
 
-        <ProgressTable poll={poll} isAdmin={isAdmin} onProxy={onProxy} />
-
-        {poll.responses.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-line py-10 text-center text-[14px] text-ink-3">
-            아직 응답이 없어요. 첫 번째로 참여해 보세요!
-          </div>
-        ) : (
-          <div className="space-y-8">
-            {poll.questions.map((q) =>
-              q.kind === "attendance" ? (
-                <Attendance key={q.id} poll={poll} q={q} />
-              ) : q.kind === "text" ? (
-                <Texts key={q.id} poll={poll} q={q} />
+            <div className="rounded-2xl border border-line p-4">
+              {poll.responses.length > 0 && <ResponseManager poll={poll} onChange={onChange} />}
+              {confirmDelete ? (
+                <div className="space-y-2">
+                  <p className="text-[13px] text-ink-2">응답을 포함해 모두 삭제돼요. 되돌릴 수 없어요.</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Button variant="secondary" size="md" onClick={() => setConfirmDelete(false)}>
+                      취소
+                    </Button>
+                    <Button variant="danger" size="md" loading={busy === "delete"} onClick={remove}>
+                      삭제하기
+                    </Button>
+                  </div>
+                </div>
               ) : (
-                <Bars
-                  key={q.id}
-                  poll={poll}
-                  q={q}
-                  isAdmin={isAdmin}
-                  busy={busy !== null}
-                  onDecide={(option) =>
-                    admin({ action: "decide", questionId: q.id, option }, option ? `'${option}'(으)로 확정했어요` : "확정을 취소했어요")
-                  }
-                />
-              ),
-            )}
-          </div>
-        )}
-
-        {/* 확정 후 다음 차수 질문 열기 */}
-        {isAdmin && (poll.template !== "meal" || (decidedList.length > 0 && !poll.questions.some((q) => q.topic === "menu"))) && (
-          <NextRound
-            key={Object.values(poll.decisions).join()}
-            poll={poll}
-            highlight={decidedList.length > 0 && !hasOpenChoice}
-            onSubmit={(question) => admin({ action: "addQuestion", question }, `${poll.round + 1}차 투표를 시작했어요`)}
-          />
-        )}
-
-        <div className="mt-8 grid grid-cols-2 gap-2">
-          <Button
-            variant="secondary"
-            size="md"
-            onClick={async () => {
-              const ok = await copyText(summaryText(poll));
-              toast(ok ? "결과를 복사했어요. 메신저에 붙여넣으세요" : "복사에 실패했어요");
-              track("results-copy");
-            }}
-          >
-            <ClipboardCopy className="size-4" /> 결과 복사
-          </Button>
-          <Button
-            variant="secondary"
-            size="md"
-            onClick={async () => {
-              // 개인정보: 공유 메시지에는 미응답자 실명 대신 인원수만
-              const r = await shareLink(
-                pollUrl(poll.id),
-                poll.title,
-                `${shareText(poll)}${prog.pending.length ? `\n🙋 아직 ${prog.pending.length}명이 응답을 마치지 않았어요` : ""}\n🔒 참여 PIN은 담당자에게 확인하세요`,
-              );
-              if (r === "copied") toast("링크를 복사했어요");
-            }}
-          >
-            <Share2 className="size-4" /> {prog.pending.length ? "응답 요청" : "링크 공유"}
-          </Button>
-        </div>
-
-        {isAdmin && (
-          <div id="admin-menu" className="mt-6 rounded-2xl border border-line p-4">
-            <p className="mb-3 flex items-center gap-1.5 text-[13px] font-semibold text-ink-2">
-              <Crown className="size-4 text-[#c79a3a]" /> 관리자 메뉴
-            </p>
-            {confirmDelete ? (
-              <div className="space-y-2">
-                <p className="text-[13px] text-ink-2">응답을 포함해 모두 삭제돼요. 되돌릴 수 없어요.</p>
                 <div className="grid grid-cols-2 gap-2">
-                  <Button variant="secondary" size="md" onClick={() => setConfirmDelete(false)}>
-                    취소
-                  </Button>
-                  <Button variant="danger" size="md" loading={busy === "delete"} onClick={remove}>
-                    삭제하기
+                  {open ? (
+                    <Button variant="secondary" size="md" disabled={busy !== null} onClick={() => admin({ action: "close" }, "투표를 마감했어요")}>
+                      <Lock className="size-4" /> 지금 마감
+                    </Button>
+                  ) : (
+                    <Button variant="secondary" size="md" disabled={busy !== null} onClick={() => admin({ action: "reopen" }, "투표를 다시 열었어요")}>
+                      <RotateCcw className="size-4" /> 다시 열기
+                    </Button>
+                  )}
+                  <Button variant="danger" size="md" onClick={() => setConfirmDelete(true)}>
+                    <Trash2 className="size-4" /> 삭제
                   </Button>
                 </div>
-              </div>
-            ) : (
-              <>
-              <Button variant="secondary" size="md" className="mb-3 w-full" onClick={() => onProxy()}>
-                <PencilLine className="size-4" /> 다른 사람 응답 대신 입력·수정
-              </Button>
-              {poll.responses.length > 0 && <ResponseManager poll={poll} onChange={onChange} />}
-              <div className="grid grid-cols-2 gap-2">
-                {open ? (
-                  <Button variant="secondary" size="md" disabled={busy !== null} onClick={() => admin({ action: "close" }, "투표를 마감했어요")}>
-                    <Lock className="size-4" /> 지금 마감
-                  </Button>
-                ) : (
-                  <Button variant="secondary" size="md" disabled={busy !== null} onClick={() => admin({ action: "reopen" }, "투표를 다시 열었어요")}>
-                    <RotateCcw className="size-4" /> 다시 열기
-                  </Button>
-                )}
-                <Button variant="danger" size="md" onClick={() => setConfirmDelete(true)}>
-                  <Trash2 className="size-4" /> 삭제
-                </Button>
-              </div>
-              </>
-            )}
+              )}
+            </div>
           </div>
-        )}
-        {!isAdmin && <AdminLogin poll={poll} onDone={(p) => { onChange(p); setAdminTick((t) => t + 1); }} />}
-      </SheetBody>
+        ) : (
+          <AdminLogin
+            poll={poll}
+            startOpen
+            onDone={(p) => {
+              onChange(p);
+              setAdminTick((t) => t + 1);
+              onAdminChange?.();
+            }}
+          />
+        ))}
+    </SheetBody>
+  );
+}
 
-      {open && (
-        <SheetFooter>
-          <Button className="w-full" onClick={onEdit}>
-            {mine ? (
-              <>
-                <PencilLine className="size-5" /> 내 응답 수정
-              </>
-            ) : (
-              "투표 참여하기"
-            )}
-          </Button>
-        </SheetFooter>
+/** 확정·지정된 식당 한 줄 요약 (전화·지도 바로가기) */
+function PlaceRow({ p, region, fixed }: { p: PollDetail["placeInfo"][string]; region: PollDetail["region"]; fixed: boolean }) {
+  return (
+    <div className="mb-2 flex items-center gap-3 rounded-2xl bg-ink px-4 py-3 text-white">
+      <MapPin className="size-5 shrink-0 text-[#6ee7b7]" />
+      <span className="min-w-0 flex-1">
+        <span className="block text-[11.5px] font-semibold text-[#6ee7b7]">{fixed ? "장소" : "확정된 식당"}</span>
+        <span className="block truncate text-[15px] font-bold">{p.name}</span>
+      </span>
+      {p.phone && (
+        <a href={`tel:${p.phone}`} aria-label="전화" className="flex size-9 items-center justify-center rounded-full bg-white/10">
+          <Phone className="size-4" />
+        </a>
       )}
-    </>
+      <a href={naverUrl(p, region)} target="_blank" rel="noopener noreferrer" aria-label="네이버 지도" className="flex size-9 items-center justify-center rounded-full bg-white/10">
+        <ExternalLink className="size-4" />
+      </a>
+    </div>
   );
 }
 
 /** 관리자: 잘못된 응답·장난 응답 초기화 (두 번 탭해서 확인) */
 /** 다른 기기(카톡 내 브라우저 등)에서도 관리자 PIN으로 관리자 모드 전환 */
-function AdminLogin({ poll, onDone }: { poll: PollDetail; onDone: (p: PollDetail) => void }) {
-  const [open, setOpen] = useState(false);
+function AdminLogin({ poll, onDone, startOpen }: { poll: PollDetail; onDone: (p: PollDetail) => void; startOpen?: boolean }) {
+  const [open, setOpen] = useState(!!startOpen);
   const [pin, setPin] = useState("");
   const [busy, setBusy] = useState(false);
   if (!poll.hasAdminPin) return null;
