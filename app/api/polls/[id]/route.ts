@@ -1,6 +1,7 @@
 import { requesterHash, verifyAccess, verifyAdmin } from "@/lib/auth";
 import { fail, json, readJson } from "@/lib/http";
 import { LIMITS, parseQuestion, toDetail } from "@/lib/poll";
+import { learnMenus } from "@/lib/places-server";
 import { getStore } from "@/lib/store";
 
 type Ctx = { params: Promise<{ id: string }> };
@@ -65,6 +66,7 @@ export async function PATCH(req: Request, { params }: Ctx) {
     return fail("알 수 없는 요청이에요.");
   }
   await store.savePoll(poll);
+  if (body.action === "addQuestion") await learnMenus(poll).catch(() => {});
   return json({ poll: toDetail(poll, await store.getResponses(id), await requesterHash(req, id)) });
 }
 

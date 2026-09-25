@@ -2,6 +2,7 @@ import { hashAdminPin, shortId, hashAdmin, hashPin, randomId } from "@/lib/auth"
 import { fail, json, readJson } from "@/lib/http";
 import { parseCreate, toSummary } from "@/lib/poll";
 import { overLimit } from "@/lib/ratelimit";
+import { learnMenus } from "@/lib/places-server";
 import { getStore } from "@/lib/store";
 import type { Poll } from "@/lib/types";
 
@@ -46,5 +47,7 @@ export async function POST(req: Request) {
   // 사용한 식당은 공용 목록에서 위로 올라오도록 사용 횟수 증가
   const ids = Object.values(poll.placeInfo ?? {}).map((p) => p.id).filter(Boolean);
   if (ids.length) await store.addPlaceUses([...new Set(ids)]).catch(() => {});
+  // 직접 입력한 메뉴는 식당 공용 정보에도 쌓임
+  await learnMenus(poll).catch(() => {});
   return json({ id, adminToken }, 201);
 }

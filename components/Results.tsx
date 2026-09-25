@@ -801,6 +801,9 @@ function NextRound({
         placeholder="선택지 추가"
         emptyPlaceholder={isMeal ? `${place ?? "식당"} 메뉴 입력 (쉼표로 여러 개)` : "선택지 입력 (쉼표로 여러 개)"}
       />
+      {isMeal && place && poll.placeInfo[place] && options.some((o) => !placeMenus.some((m) => menuLabel(m) === o)) && (
+        <p className="mt-2 text-[12px] text-ink-3">직접 넣은 메뉴는 식당 정보에도 저장돼, 다음부터 탭 한 번으로 골라요.</p>
+      )}
       </div>
       {err && <p className="mt-2 text-[12.5px] font-medium text-danger">{err}</p>}
       <div className="mt-3">

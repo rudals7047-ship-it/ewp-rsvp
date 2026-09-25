@@ -509,6 +509,9 @@ export function CreateSheet({
                               placeholder="메뉴 추가"
                               emptyPlaceholder={menuSource.length ? "목록에 없는 메뉴 직접 추가" : "예) 김치찌개, 된장찌개 (쉼표로 여러 개)"}
                             />
+                            {menus.some((m) => !suggested.has(m)) && (
+                              <p className="mt-2 text-[12px] text-ink-3">직접 넣은 메뉴는 식당 정보에도 저장돼, 다음부터 탭 한 번으로 골라요.</p>
+                            )}
                             {menus.length > 0 && (
                               <div className="mt-3">
                                 <Toggle checked={menuMulti} onChange={setMenuMulti} label="복수 선택 허용" />
