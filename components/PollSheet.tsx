@@ -35,7 +35,8 @@ export function PollSheet({
 
   const route = useCallback((p: PollDetail) => {
     const name = local.get(keys.name);
-    const mine = name ? p.responses.find((r) => nameKey(r.name) === nameKey(name)) : undefined;
+    // 이 기기에서 작성한 응답이 우선, 없으면 저장된 이름으로 (다른 기기가 잠근 응답은 제외)
+    const mine = p.responses.find((r) => r.own) ?? (name ? p.responses.find((r) => !r.locked && nameKey(r.name) === nameKey(name)) : undefined);
     setMyName(mine?.name ?? name);
     const needs = !mine || pendingQuestions(p, mine.answers).length > 0;
     if (mine && !needs) local.set(`done:${p.id}`, String(p.round));

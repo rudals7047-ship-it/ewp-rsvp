@@ -20,6 +20,7 @@ export function Home({ initialPollId }: { initialPollId?: string }) {
   const [createOpen, setCreateOpen] = useState(false);
   const [createKey, setCreateKey] = useState(0);
   const [, force] = useState(0);
+  const [showAllDone, setShowAllDone] = useState(false);
   const pending = useRef(initialPollId);
   const now = useNow();
 
@@ -30,8 +31,10 @@ export function Home({ initialPollId }: { initialPollId?: string }) {
       setStorage(res.storage);
       return res.polls;
     } catch {
-      setPolls((p) => p ?? []);
-      toast("목록을 불러오지 못했어요");
+      setPolls((p) => {
+        if (p === null) toast("목록을 불러오지 못했어요"); // 주기적 갱신 실패로 토스트가 반복되지 않도록
+        return p ?? [];
+      });
       return null;
     }
   }, []);
@@ -77,6 +80,7 @@ export function Home({ initialPollId }: { initialPollId?: string }) {
   useEffect(() => {
     const onPop = () => {
       if (!history.state?.sheet) setOpenPoll(null);
+      if (!history.state?.create) setCreateOpen(false);
     };
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
@@ -121,7 +125,12 @@ export function Home({ initialPollId }: { initialPollId?: string }) {
   const startCreate = () => {
     setCreateKey((k) => k + 1);
     setCreateOpen(true);
+    history.pushState({ create: true }, "", location.href); // 모바일 뒤로가기로 닫히도록
   };
+  const closeCreate = useCallback(() => {
+    setCreateOpen(false);
+    if (history.state?.create) history.back();
+  }, []);
 
   return (
     <div className="min-h-dvh">
@@ -224,7 +233,7 @@ export function Home({ initialPollId }: { initialPollId?: string }) {
             {done.length > 0 && (
               <Section title="지난 투표" count={done.length}>
                 <div className="space-y-2">
-                  {done.map((p) => (
+                  {(showAllDone ? done : done.slice(0, 6)).map((p) => (
                     <PollCard
                       key={p.id}
                       poll={p}
@@ -235,6 +244,15 @@ export function Home({ initialPollId }: { initialPollId?: string }) {
                       showTeam={team === ALL}
                     />
                   ))}
+                  {!showAllDone && done.length > 6 && (
+                    <button
+                      type="button"
+                      onClick={() => setShowAllDone(true)}
+                      className="w-full rounded-[20px] py-3 text-[14px] font-semibold text-ink-2 hover:bg-ink/[0.03]"
+                    >
+                      지난 투표 {done.length - 6}개 더 보기
+                    </button>
+                  )}
                 </div>
               </Section>
             )}
@@ -264,7 +282,7 @@ export function Home({ initialPollId }: { initialPollId?: string }) {
       <CreateSheet
         key={createKey}
         open={createOpen}
-        onClose={() => setCreateOpen(false)}
+        onClose={closeCreate}
         teams={teams}
         defaultTeam={team === ALL ? null : team}
         onCreated={async (id, t) => {

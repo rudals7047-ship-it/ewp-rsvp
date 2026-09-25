@@ -1,4 +1,4 @@
-import { verifyAccess, verifyAdmin } from "@/lib/auth";
+import { requesterHash, verifyAccess, verifyAdmin } from "@/lib/auth";
 import { fail, json, readJson } from "@/lib/http";
 import { LIMITS, parseQuestion, toDetail } from "@/lib/poll";
 import { getStore } from "@/lib/store";
@@ -15,7 +15,7 @@ export async function GET(req: Request, { params }: Ctx) {
     (await verifyAccess(poll, req.headers.get("x-poll-token"))) ||
     (await verifyAdmin(poll, req.headers.get("x-admin-token")));
   if (!ok) return fail("PIN 인증이 필요해요.", 401);
-  return json({ poll: toDetail(poll, await store.getResponses(id)) });
+  return json({ poll: toDetail(poll, await store.getResponses(id), await requesterHash(req, id)) });
 }
 
 /** 관리자: 마감/재개 */
@@ -62,7 +62,7 @@ export async function PATCH(req: Request, { params }: Ctx) {
     return fail("알 수 없는 요청이에요.");
   }
   await store.savePoll(poll);
-  return json({ poll: toDetail(poll, await store.getResponses(id)) });
+  return json({ poll: toDetail(poll, await store.getResponses(id), await requesterHash(req, id)) });
 }
 
 /** 관리자: 삭제 */

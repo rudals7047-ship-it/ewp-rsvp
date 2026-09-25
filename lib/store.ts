@@ -21,6 +21,8 @@ export interface Store {
   count(key: string): Promise<number>;
   reset(key: string): Promise<void>;
   getOrCreateSecret(): Promise<string>;
+  /** 저장된 비밀키 조회 (생성하지 않음) */
+  getSecret(): Promise<string | null>;
 }
 
 const POLL = (id: string) => `poll:${id}`;
@@ -87,8 +89,11 @@ function redisStore(redis: Redis): Store {
       await redis.hdel(RESP(id), key);
     },
     async hit(key, ttlSec) {
-      const n = await redis.incr(key);
-      if (n === 1) await redis.expire(key, ttlSec);
+      // incr과 TTL 설정을 한 번에: TTL 누락으로 영구 차단되는 일을 방지
+      const p = redis.pipeline();
+      p.incr(key);
+      p.expire(key, ttlSec, "NX");
+      const [n] = await p.exec<[number, number]>();
       return n;
     },
     async count(key) {
@@ -96,6 +101,10 @@ function redisStore(redis: Redis): Store {
     },
     async reset(key) {
       await redis.del(key);
+    },
+    async getSecret() {
+      const v = await redis.get<string>(SECRET);
+      return v ? String(v) : null;
     },
     async getOrCreateSecret() {
       const existing = await redis.get<string>(SECRET);
@@ -170,6 +179,9 @@ function memoryStore(): Store {
       m.counters.delete(key);
     },
     async getOrCreateSecret() {
+      return m.secret;
+    },
+    async getSecret() {
       return m.secret;
     },
   };

@@ -27,10 +27,25 @@ export const session = {
 
 export const keys = {
   name: "me:name",
+  owner: "me:owner",
   team: "me:team",
   access: (id: string) => `access:${id}`,
   admin: (id: string) => `admin:${id}`,
 };
+
+/** 이 기기 고유의 응답 소유 토큰 (다른 기기가 같은 이름으로 덮어쓰는 것 방지) */
+let memOwner: string | null = null;
+export function ownerToken() {
+  const saved = local.get(keys.owner);
+  if (saved) return saved;
+  if (!memOwner) {
+    const b = new Uint8Array(18);
+    crypto.getRandomValues(b);
+    memOwner = btoa(String.fromCharCode(...b)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+    local.set(keys.owner, memOwner);
+  }
+  return memOwner;
+}
 
 /* ---------- API ---------- */
 
@@ -52,6 +67,7 @@ async function request<T>(url: string, init: RequestInit = {}, id?: string): Pro
     const a = local.get(keys.admin(id));
     if (t) headers.set("x-poll-token", t);
     if (a) headers.set("x-admin-token", a);
+    headers.set("x-owner-token", ownerToken());
   }
   let res: Response;
   try {
@@ -69,10 +85,11 @@ export const api = {
   create: (body: unknown) =>
     request<{ id: string; adminToken: string }>("/api/polls", { method: "POST", body: JSON.stringify(body) }),
   unlock: (id: string, pin: string) =>
-    request<{ token: string; poll: PollDetail }>(`/api/polls/${id}/unlock`, {
-      method: "POST",
-      body: JSON.stringify({ pin }),
-    }),
+    request<{ token: string; poll: PollDetail }>(
+      `/api/polls/${id}/unlock`,
+      { method: "POST", body: JSON.stringify({ pin }) },
+      id,
+    ),
   detail: (id: string) => request<{ poll: PollDetail }>(`/api/polls/${id}`, {}, id),
   respond: (id: string, name: string, answers: unknown) =>
     request<{ poll: PollDetail }>(
@@ -87,6 +104,8 @@ export const api = {
       | { action: "decide"; questionId: string; option: string | null }
       | { action: "addQuestion"; question: { kind: "single" | "multi"; title: string; options: string[] } },
   ) => request<{ poll: PollDetail }>(`/api/polls/${id}`, { method: "PATCH", body: JSON.stringify(body) }, id),
+  removeResponse: (id: string, name: string) =>
+    request<{ poll: PollDetail }>(`/api/polls/${id}/responses?name=${encodeURIComponent(name)}`, { method: "DELETE" }, id),
   remove: (id: string) => request<{ ok: true }>(`/api/polls/${id}`, { method: "DELETE" }, id),
 };
 

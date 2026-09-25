@@ -2,7 +2,7 @@
 
 import { AnimatePresence, motion, useDragControls } from "motion/react";
 import { X } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { IconButton, cx, useMediaQuery } from "./ui";
 
@@ -22,8 +22,12 @@ export function Sheet({
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
 
+  const panel = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!open) return;
+    // 접근성: 열리면 시트로 포커스 이동, 닫히면 원래 위치로 복귀
+    const opener = document.activeElement as HTMLElement | null;
+    requestAnimationFrame(() => panel.current?.focus({ preventScroll: true }));
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
@@ -31,6 +35,7 @@ export function Sheet({
     return () => {
       document.body.style.overflow = prev;
       window.removeEventListener("keydown", onKey);
+      opener?.focus?.({ preventScroll: true });
     };
   }, [open, onClose]);
 
@@ -48,7 +53,9 @@ export function Sheet({
             onClick={onClose}
           />
           <motion.div
-            className="relative flex max-h-[94dvh] w-full flex-col overflow-hidden rounded-t-[28px] bg-surface shadow-lift sm:max-h-[min(88dvh,820px)] sm:max-w-[440px] sm:rounded-[28px]"
+            ref={panel}
+            tabIndex={-1}
+            className="relative flex max-h-[94dvh] outline-none w-full flex-col overflow-hidden rounded-t-[28px] bg-surface shadow-lift sm:max-h-[min(88dvh,820px)] sm:max-w-[440px] sm:rounded-[28px]"
             initial={desktop ? { opacity: 0, scale: 0.96, y: 16 } : { y: "100%" }}
             animate={desktop ? { opacity: 1, scale: 1, y: 0 } : { y: 0 }}
             exit={desktop ? { opacity: 0, scale: 0.97, y: 8 } : { y: "100%" }}

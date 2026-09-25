@@ -44,6 +44,11 @@ export interface PollResponse {
   name: string;
   answers: Record<string, Answer>;
   updatedAt: number;
+  /** 서버 전용: 응답한 기기의 소유 토큰 해시 (클라이언트로 내보내지 않음) */
+  ownerHash?: string;
+  /** 클라이언트용: 이 기기가 작성한 응답인지 / 다른 기기가 작성해 잠긴 응답인지 */
+  own?: boolean;
+  locked?: boolean;
 }
 
 export type PollStatus = "open" | "closed";

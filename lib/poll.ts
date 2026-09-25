@@ -12,6 +12,7 @@ export const LIMITS = {
   name: 20,
   text: 300,
   roster: 80,
+  responses: 300,
   place: 40,
 };
 
@@ -37,7 +38,8 @@ export function toSummary(p: Poll, responseCount: number): PollSummary {
   };
 }
 
-export function toDetail(p: Poll, responses: PollResponse[]): PollDetail {
+/** requesterHash: 요청한 기기의 소유 토큰 해시 (응답별 own/locked 계산용, 해시 자체는 내보내지 않음) */
+export function toDetail(p: Poll, responses: PollResponse[], requesterHash?: string | null): PollDetail {
   return {
     ...toSummary(p, responses.length),
     note: p.note,
@@ -45,7 +47,15 @@ export function toDetail(p: Poll, responses: PollResponse[]): PollDetail {
     roster: p.roster,
     decisions: p.decisions ?? {},
     questions: p.questions,
-    responses: responses.sort((a, b) => a.updatedAt - b.updatedAt),
+    responses: responses
+      .map(({ name, answers, updatedAt, ownerHash }) => ({
+        name,
+        answers,
+        updatedAt,
+        own: !!ownerHash && ownerHash === requesterHash,
+        locked: !!ownerHash && ownerHash !== requesterHash,
+      }))
+      .sort((a, b) => a.updatedAt - b.updatedAt),
   };
 }
 

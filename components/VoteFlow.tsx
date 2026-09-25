@@ -1,7 +1,7 @@
 "use client";
 
 import { AnimatePresence, motion } from "motion/react";
-import { Check, ChevronLeft, CircleHelp, UserRound, X } from "lucide-react";
+import { Check, ChevronLeft, CircleHelp, Lock, UserRound, X } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 import { ApiError, api, keys, local, vibrate } from "@/lib/client";
 import { nameKey, pendingQuestions, visibleQuestions } from "@/lib/poll";
@@ -23,7 +23,7 @@ export function VoteFlow({
   onDone: (poll: PollDetail, name: string, answers: Record<string, Answer>) => void;
   onCancel: () => void;
 }) {
-  const savedName = local.get(keys.name) ?? "";
+  const savedName = poll.responses.find((r) => r.own)?.name ?? local.get(keys.name) ?? "";
   const existing = (n: string) => poll.responses.find((r) => nameKey(r.name) === nameKey(n));
   const [name, setName] = useState(savedName);
   const [typing, setTyping] = useState(() => !poll.roster?.length || (!!savedName && !inRoster(poll.roster, savedName)));
@@ -109,7 +109,7 @@ export function VoteFlow({
   const multiCount = current?.kind === "multi" ? ((answers[current.id] as string[] | undefined)?.length ?? 0) : 0;
   const textVal = current?.kind === "text" ? ((answers[current.id] as string | undefined) ?? "") : "";
   const prev = step.key === "name" && name.trim() ? existing(name) : undefined;
-  const responded = new Set(poll.responses.map((r) => nameKey(r.name)));
+  const lockedName = !!prev?.locked;
 
   return (
     <>
@@ -153,7 +153,8 @@ export function VoteFlow({
                     <div className="grid grid-cols-3 gap-2">
                       {poll.roster.map((n) => {
                         const on = nameKey(n) === nameKey(name);
-                        const done = responded.has(nameKey(n));
+                        const r = existing(n);
+                        const done = !!r;
                         return (
                           <button
                             key={n}
@@ -169,7 +170,12 @@ export function VoteFlow({
                             )}
                           >
                             <span className="truncate">{n}</span>
-                            {done && <Check className={cx("size-3.5 shrink-0", on ? "text-white/80" : "text-accent")} strokeWidth={3} aria-label="응답함" />}
+                            {done &&
+                              (r?.locked ? (
+                                <Lock className={cx("size-3 shrink-0", on ? "text-white/70" : "text-ink-3")} strokeWidth={2.6} aria-label="다른 기기에서 응답함" />
+                              ) : (
+                                <Check className={cx("size-3.5 shrink-0", on ? "text-white/80" : "text-accent")} strokeWidth={3} aria-label="응답함" />
+                              ))}
                           </button>
                         );
                       })}
@@ -193,7 +199,7 @@ export function VoteFlow({
                       value={name}
                       maxLength={20}
                       onChange={(e) => chooseName(e.target.value)}
-                      onKeyDown={(e) => e.key === "Enter" && !e.nativeEvent.isComposing && name.trim() && next()}
+                      onKeyDown={(e) => e.key === "Enter" && !e.nativeEvent.isComposing && name.trim() && !lockedName && next()}
                       placeholder="예) 김민준"
                       autoComplete="name"
                       enterKeyHint="next"
@@ -201,12 +207,18 @@ export function VoteFlow({
                     />
                   </div>
                 )}
-                {prev && (
-                  <p className="mt-3 flex items-center gap-1.5 rounded-xl bg-accent-soft px-3 py-2.5 text-[13px] font-medium text-accent">
-                    <Check className="size-4 shrink-0" strokeWidth={3} />
-                    이전 응답을 불러왔어요. 수정 후 다시 저장할 수 있어요.
-                  </p>
-                )}
+                {prev &&
+                  (lockedName ? (
+                    <p className="mt-3 flex items-start gap-1.5 rounded-xl bg-[#fdf5e3] px-3 py-2.5 text-[13px] font-medium leading-relaxed text-[#8a5a12]">
+                      <Lock className="mt-0.5 size-4 shrink-0" strokeWidth={2.6} />
+                      다른 기기에서 이미 응답한 이름이에요. 본인이라면 처음 응답한 기기에서 수정하거나, 관리자에게 초기화를 요청하세요.
+                    </p>
+                  ) : (
+                    <p className="mt-3 flex items-center gap-1.5 rounded-xl bg-accent-soft px-3 py-2.5 text-[13px] font-medium text-accent">
+                      <Check className="size-4 shrink-0" strokeWidth={3} />
+                      이전 응답을 불러왔어요. 수정 후 다시 저장할 수 있어요.
+                    </p>
+                  ))}
               </>
             ) : (
               <>
@@ -229,8 +241,8 @@ export function VoteFlow({
       {(step.key === "name" || current?.kind === "multi" || current?.kind === "text" || answers[current?.id ?? ""] !== undefined) && (
         <SheetFooter>
           {step.key === "name" ? (
-            <Button className="w-full" disabled={!name.trim()} onClick={() => next()}>
-              시작하기
+            <Button className="w-full" disabled={!name.trim() || lockedName} onClick={() => next()}>
+              {prev && !lockedName ? "응답 수정하기" : "시작하기"}
             </Button>
           ) : current?.kind === "multi" ? (
             <Button className="w-full" loading={busy} disabled={current.required && multiCount === 0} onClick={() => next()}>

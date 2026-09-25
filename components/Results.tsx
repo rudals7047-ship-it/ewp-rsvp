@@ -253,6 +253,8 @@ export function Results({
                 </div>
               </div>
             ) : (
+              <>
+              {poll.responses.length > 0 && <ResponseManager poll={poll} onChange={onChange} />}
               <div className="grid grid-cols-2 gap-2">
                 {open ? (
                   <Button variant="secondary" size="md" disabled={busy !== null} onClick={() => admin({ action: "close" }, "투표를 마감했어요")}>
@@ -267,6 +269,7 @@ export function Results({
                   <Trash2 className="size-4" /> 삭제
                 </Button>
               </div>
+              </>
             )}
           </div>
         )}
@@ -286,6 +289,49 @@ export function Results({
         </SheetFooter>
       )}
     </>
+  );
+}
+
+/** 관리자: 잘못된 응답·장난 응답 초기화 (두 번 탭해서 확인) */
+function ResponseManager({ poll, onChange }: { poll: PollDetail; onChange: (p: PollDetail) => void }) {
+  const [armed, setArmed] = useState<string | null>(null);
+  const [open, setOpen] = useState(false);
+  if (!open) {
+    return (
+      <button type="button" onClick={() => setOpen(true)} className="mb-3 text-[13px] font-semibold text-ink-2 underline underline-offset-4">
+        응답 관리 (잘못된 응답 초기화)
+      </button>
+    );
+  }
+  return (
+    <div className="mb-3">
+      <p className="mb-2 text-[12.5px] text-ink-3">초기화할 이름을 두 번 탭하세요. 본인은 다시 응답할 수 있어요.</p>
+      <div className="flex flex-wrap gap-1.5">
+        {poll.responses.map((r) => (
+          <button
+            key={r.name}
+            type="button"
+            onClick={async () => {
+              if (armed !== r.name) return setArmed(r.name);
+              try {
+                const { poll: p } = await api.removeResponse(poll.id, r.name);
+                onChange(p);
+                toast(`${r.name}님의 응답을 초기화했어요`);
+              } catch (e) {
+                toast(e instanceof ApiError ? e.message : "실패했어요");
+              }
+              setArmed(null);
+            }}
+            className={cx(
+              "inline-flex items-center gap-1 rounded-full px-3 py-1.5 text-[13px] font-medium transition",
+              armed === r.name ? "bg-danger text-white" : "bg-ink/[0.05] text-ink-2",
+            )}
+          >
+            {r.name} <X className="size-3.5" />
+          </button>
+        ))}
+      </div>
+    </div>
   );
 }
 
