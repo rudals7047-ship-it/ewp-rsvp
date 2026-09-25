@@ -1,16 +1,14 @@
 import type { Metadata } from "next";
 import { Home } from "@/components/Home";
 import { toSummary } from "@/lib/poll";
-import { getStore } from "@/lib/store";
+import { freshPoll } from "@/lib/advance";
 
 type Props = { params: Promise<{ id: string }> };
 
 // 공유 미리보기에는 제목·팀만 노출 (질문/응답은 PIN 인증 후)
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { id } = await params;
-  const poll = await getStore()
-    .getPoll(id)
-    .catch(() => null);
+  const poll = await freshPoll(id).catch(() => null);
   if (!poll) return { title: "투표" };
   // 링크 미리보기(카톡 등): 제목 + 현재 단계 + 일정. 이름·응답·식당 확정값 등은 넣지 않음
   const sum = toSummary(poll, 0);

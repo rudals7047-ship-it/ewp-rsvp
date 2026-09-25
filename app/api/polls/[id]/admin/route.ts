@@ -1,3 +1,4 @@
+import { freshPoll } from "@/lib/advance";
 import { issueAccess, issueAdminSession, requesterHash, verifyAdminPin } from "@/lib/auth";
 import { fail, json, readJson } from "@/lib/http";
 import { toDetail } from "@/lib/poll";
@@ -8,7 +9,7 @@ import { getStore } from "@/lib/store";
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const store = getStore();
-  const poll = await store.getPoll(id);
+  const poll = await freshPoll(id);
   if (!poll) return fail("투표를 찾을 수 없어요.", 404);
   if (!poll.adminPinHash) return fail("관리자 PIN이 설정되지 않은 투표예요. 만들 때 받은 관리 링크를 사용해 주세요.", 400);
 

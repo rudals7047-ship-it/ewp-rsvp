@@ -5,7 +5,7 @@ import { motion } from "motion/react";
 import { BarChart3, ChevronDown, Crown, Loader2, PencilLine, UserRound, Users } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiError, api, keys, local, progressTable, relUntil, session, track, vibrate } from "@/lib/client";
-import { nameKey, pendingQuestions } from "@/lib/poll";
+import { pendingQuestions } from "@/lib/poll";
 import type { Answer, PollDetail, PollSummary } from "@/lib/types";
 import { StageBar } from "./Flow";
 import { PinPad } from "./PinPad";
@@ -43,10 +43,9 @@ export function PollSheet({
   const id = summary?.id;
 
   const route = useCallback((p: PollDetail) => {
-    const name = local.get(keys.name);
-    // 이 기기에서 작성한 응답이 우선, 없으면 저장된 이름으로 (다른 기기가 잠근 응답은 제외)
-    const mine = p.responses.find((r) => r.own) ?? (name ? p.responses.find((r) => !r.locked && nameKey(r.name) === nameKey(name)) : undefined);
-    setMyName(mine?.name ?? name);
+    // 명의는 '이 기기로 직접 낸 응답'만 기준 (다른 투표에서 쓴 이름·대신 입력한 응답과 섞이지 않게)
+    const mine = p.responses.find((r) => r.own);
+    setMyName(mine?.name ?? null);
     const needs = !mine || pendingQuestions(p, mine.answers).length > 0;
     if (mine && !needs) local.set(`done:${p.id}`, String(p.round));
     // 만든 사람(관리자)은 관리/결과 화면부터: 참여는 하단 버튼으로
@@ -202,14 +201,21 @@ export function PollSheet({
               if (t === "respond") setProxy(null);
               setTab(t);
             }}
-            onSelf={(forget) => {
-              if (forget) {
-                local.del(keys.name);
-                setMyName(null);
-              }
+            onSelf={() => {
               setProxy(null);
               setRespondKey((k) => k + 1);
               setTab("respond");
+            }}
+            onRelease={async (name) => {
+              try {
+                const { poll: p } = await api.releaseResponse(poll.id, name);
+                accept(p);
+                setMyName(null);
+                if (local.get(keys.name) === name) local.del(keys.name);
+                toast(`'${name}'님 응답을 대신 입력한 것으로 바꿨어요. 이제 이 기기로 본인 응답을 할 수 있어요`);
+              } catch (e) {
+                toast(e instanceof ApiError ? e.message : "실패했어요");
+              }
             }}
             onProxy={() => {
               setProxy({});
@@ -259,6 +265,7 @@ function Dock({
   adminTick,
   onTab,
   onSelf,
+  onRelease,
   onProxy,
 }: {
   poll: PollDetail;
@@ -267,18 +274,33 @@ function Dock({
   proxy: { name?: string } | null;
   adminTick: number;
   onTab: (t: Tab) => void;
-  onSelf: (forget: boolean) => void;
+  onSelf: () => void;
+  onRelease: (name: string) => void;
   onProxy: () => void;
 }) {
   const [menu, setMenu] = useState(false);
   const isAdmin = adminTick >= 0 && isAdminOf(poll);
+  // 메뉴가 열려 있을 때 바깥(빈 곳)을 누르거나 Esc를 누르면 닫힘
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!menu) return;
+    const close = (e: Event) => {
+      if (e instanceof KeyboardEvent ? e.key === "Escape" : !box.current?.contains(e.target as Node)) setMenu(false);
+    };
+    document.addEventListener("pointerdown", close);
+    document.addEventListener("keydown", close);
+    return () => {
+      document.removeEventListener("pointerdown", close);
+      document.removeEventListener("keydown", close);
+    };
+  }, [menu]);
   const { rows, pending } = progressTable(poll);
   const end = poll.deadline ?? poll.eventAt;
   const left = end ? relUntil(end) : null;
   const identity = proxy
     ? `관리자 · ${proxy.name ? `${proxy.name}님` : "대상 선택 중"} 대신 입력`
     : isAdmin
-      ? `관리자${myName ? ` · ${myName}` : ""}`
+      ? `관리자${myName ? ` · 내 응답 ${myName}` : ""}`
       : myName
         ? `${myName}님`
         : "이름 선택 전";
@@ -293,12 +315,21 @@ function Dock({
   ];
   const Icon = proxy || isAdmin ? Crown : UserRound;
   return (
-    <div className="pb-safe relative shrink-0 border-t border-line bg-surface px-3 pt-2">
+    <div ref={box} className="pb-safe relative shrink-0 border-t border-line bg-surface px-3 pt-2">
       {menu && (
         <div className="absolute inset-x-3 bottom-full mb-2 overflow-hidden rounded-2xl border border-line bg-surface shadow-lift">
-          {proxy && <MenuItem onClick={() => { setMenu(false); onSelf(false); }}>내 이름으로 응답하기</MenuItem>}
-          {!proxy && poll.status === "open" && <MenuItem onClick={() => { setMenu(false); onSelf(true); }}>다른 이름으로 응답하기 (이 기기를 함께 쓸 때)</MenuItem>}
+          {proxy && <MenuItem onClick={() => { setMenu(false); onSelf(); }}>내 이름으로 응답하기</MenuItem>}
+          {!proxy && (
+            <p className="border-b border-line px-4 py-3 text-[12.5px] leading-relaxed text-ink-3">
+              {myName ? `이 기기는 ${myName}님 명의로 응답해요.` : "이 기기로 처음 응답한 이름으로 고정돼요."} 한 기기에서는 한 사람만 응답할 수 있어요.
+            </p>
+          )}
           {isAdmin && <MenuItem onClick={() => { setMenu(false); onProxy(); }}>👑 다른 사람 대신 입력·수정</MenuItem>}
+          {isAdmin && !proxy && myName && (
+            <MenuItem onClick={() => { setMenu(false); onRelease(myName); }}>
+              👑 &lsquo;{myName}&rsquo;님 응답은 제가 대신 입력한 거예요 (이 기기 명의 해제)
+            </MenuItem>
+          )}
           {!isAdmin && poll.hasAdminPin && <MenuItem onClick={() => { setMenu(false); onTab("admin"); }}>👑 관리자 모드로 전환</MenuItem>}
         </div>
       )}

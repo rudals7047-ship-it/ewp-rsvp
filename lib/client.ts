@@ -104,7 +104,8 @@ export const api = {
     body:
       | { action: "close" | "reopen" }
       | { action: "decide"; questionId: string; option: string | null }
-      | { action: "addQuestion"; question: { kind: "single" | "multi"; title: string; options: string[] } },
+      | { action: "addQuestion"; question: { kind: "single" | "multi"; title: string; options: string[] } }
+      | { action: "startMenu"; option: string },
   ) => request<{ poll: PollDetail }>(`/api/polls/${id}`, { method: "PATCH", body: JSON.stringify(body) }, id),
   places: (region: Region) => request<{ places: Place[] }>(`/api/places?region=${region}`),
   savePlace: (p: {
@@ -129,6 +130,9 @@ export const api = {
     request<{ adminToken: string; token: string; poll: PollDetail }>(`/api/polls/${id}/admin`, { method: "POST", body: JSON.stringify({ pin }) }, id),
   removeResponse: (id: string, name: string) =>
     request<{ poll: PollDetail }>(`/api/polls/${id}/responses?name=${encodeURIComponent(name)}`, { method: "DELETE" }, id),
+  /** 관리자: 이 기기 명의로 묶인 응답을 '대신 입력한 응답'으로 바꿔 기기 명의 해제 (응답 내용은 유지) */
+  releaseResponse: (id: string, name: string) =>
+    request<{ poll: PollDetail }>(`/api/polls/${id}/responses?name=${encodeURIComponent(name)}&release=1`, { method: "DELETE" }, id),
   remove: (id: string) => request<{ ok: true }>(`/api/polls/${id}`, { method: "DELETE" }, id),
 };
 
@@ -362,3 +366,17 @@ export async function shareLink(url: string, title: string, text: string) {
 }
 
 export { ATTEND };
+
+/**
+ * 가게 정보 등 외부 링크 열기. 카카오톡 인앱 브라우저에서는 같은 창으로 넘어가면 투표 화면으로 돌아올 수 없어서
+ * 휴대폰 기본 브라우저로 열도록 넘김 (카카오톡 openExternal 스킴, 라인은 openExternalBrowser 파라미터)
+ */
+export function openExternal(url: string) {
+  const ua = typeof navigator === "undefined" ? "" : navigator.userAgent;
+  if (/KAKAOTALK/i.test(ua)) {
+    location.href = `kakaotalk://web/openExternal?url=${encodeURIComponent(url)}`;
+    return;
+  }
+  if (/\bLine\//i.test(ua)) url += `${url.includes("?") ? "&" : "?"}openExternalBrowser=1`;
+  window.open(url, "_blank", "noopener");
+}

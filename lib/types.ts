@@ -48,6 +48,8 @@ export interface Poll {
   placeInfo?: Record<string, PlaceSnap>;
   /** 식당 확정 후 메뉴를 받을 예정 (단계 표시용) */
   menuLater?: boolean;
+  /** 식당 투표 마감 시각에 1위 식당으로 메뉴 투표가 자동 시작됨 */
+  autoMenu?: boolean;
   /** 관리자 PIN (어느 기기에서든 관리자 모드 전환) */
   adminPinSalt?: string;
   adminPinHash?: string;
@@ -107,6 +109,8 @@ export interface PollDetail extends PollSummary {
   placeInfo: Record<string, PlaceSnap>;
   questions: Question[];
   responses: PollResponse[];
+  menuLater?: boolean;
+  autoMenu?: boolean;
 }
 
 export const ATTEND = { yes: "참석", maybe: "미정", no: "불참" } as const;
