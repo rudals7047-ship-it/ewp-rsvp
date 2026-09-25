@@ -19,8 +19,8 @@ import {
   X,
 } from "lucide-react";
 import { useState } from "react";
-import { ApiError, api, copyText, pollUrl, shareText, fmtDate, keys, kstToIso, kstToday, local, shareLink, track } from "@/lib/client";
-import { LIMITS } from "@/lib/poll";
+import { ApiError, api, copyText, josa, pollUrl, shareText, fmtDate, keys, kstToIso, kstToday, local, shareLink, track } from "@/lib/client";
+import { LIMITS, teamKey } from "@/lib/poll";
 import { type Place, type Region, menuLabel, toSnap } from "@/lib/places";
 import type { QuestionKind, Template } from "@/lib/types";
 import { ChipsInput } from "./ChipsInput";
@@ -91,10 +91,13 @@ export function CreateSheet({
   // 팀은 자동으로 채우지 않음 (의도치 않은 팀으로 만들어지지 않게). 보고 있던 팀을 맨 앞에 보여주기만 함
   const [team, setTeam] = useState("");
   const [teamQuery, setTeamQuery] = useState("");
+  const [addingTeam, setAddingTeam] = useState(!teams.length);
+  // 새 팀으로 입력한 이름이 기존 팀과 띄어쓰기·대소문자만 다르면 기존 팀을 씀
+  const teamMatch = addingTeam && team.trim() ? teams.find((t) => teamKey(t) === teamKey(team)) : undefined;
+  const finalTeam = (teamMatch ?? team).trim().replace(/\s+/g, " ");
   const teamList = (defaultTeam && teams.includes(defaultTeam) ? [defaultTeam, ...teams.filter((t) => t !== defaultTeam)] : teams).filter(
     (t) => !teamQuery.trim() || t.toLowerCase().includes(teamQuery.trim().toLowerCase()),
   );
-  const [addingTeam, setAddingTeam] = useState(!teams.length);
   const [title, setTitle] = useState("");
   // 오후 6시가 지났으면 기본 날짜를 내일로
   const [date, setDate] = useState(() => (new Date(Date.now() + 9 * 3600_000).toISOString().slice(11, 16) >= "18:00" ? kstToday(1) : kstToday()));
@@ -223,7 +226,7 @@ export function CreateSheet({
     try {
       const body = {
         template,
-        team: team.trim(),
+        team: finalTeam,
         title: finalTitle,
         note: note.trim() || undefined,
         place: isMeal && placeMode === "fixed" ? place.trim() : undefined,
@@ -372,6 +375,21 @@ export function CreateSheet({
                         placeholder="팀 이름 (예: 회계세무부)"
                         className={cx(inputCls, teams.length ? "mt-2.5" : "")}
                       />
+                    )}
+                    {teamMatch && (
+                      <p className="mt-2 rounded-xl bg-accent-soft px-3 py-2 text-[13px] font-medium text-[#0b6b51]">
+                        이미 있는 팀이에요. &lsquo;{teamMatch}&rsquo;{josa(teamMatch, "으로")} 만들어요.{" "}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setTeam(teamMatch);
+                            setAddingTeam(false);
+                          }}
+                          className="font-semibold underline underline-offset-2"
+                        >
+                          목록에서 선택
+                        </button>
+                      </p>
                     )}
                   </Field>
 

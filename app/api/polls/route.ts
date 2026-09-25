@@ -1,6 +1,6 @@
 import { hashAdminPin, shortId, hashAdmin, hashPin, randomId } from "@/lib/auth";
 import { fail, json, readJson } from "@/lib/http";
-import { autoAdvance, parseCreate, toSummary } from "@/lib/poll";
+import { autoAdvance, parseCreate, teamKey, toSummary } from "@/lib/poll";
 import { overLimit } from "@/lib/ratelimit";
 import { getStore } from "@/lib/store";
 import type { Poll } from "@/lib/types";
@@ -29,6 +29,9 @@ export async function POST(req: Request) {
   const parsed = parseCreate(await readJson(req));
   if (!parsed.ok) return fail(parsed.error);
   const { pin, adminPin, ...data } = parsed.data;
+  // 이미 있는 팀과 띄어쓰기·대소문자만 다르면 기존 표기로 맞춤 (팀 중복 방지)
+  const same = (await store.listPolls(200)).find(({ poll: p }) => (p.region ?? "ulsan") === (data.region ?? "ulsan") && teamKey(p.team) === teamKey(data.team));
+  if (same) data.team = same.poll.team;
 
   // 짧고 읽기 쉬운 링크 ID (충돌 시 재시도)
   let id = shortId();
