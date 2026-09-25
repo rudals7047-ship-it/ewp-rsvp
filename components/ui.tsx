@@ -172,6 +172,10 @@ export function Field({
   );
 }
 
+/** 여러 줄 입력칸 (inputCls의 고정 높이 h-13을 쓰지 않음 → 커서 위치 어긋남 방지) */
+export const textareaCls =
+  "block w-full resize-none rounded-2xl border border-line bg-surface px-4 py-3 text-[16px] leading-relaxed text-ink placeholder:text-ink-3/80 outline-none transition focus:border-ink/30 focus:ring-4 focus:ring-ink/[0.05]";
+
 export const inputCls =
   "h-13 w-full rounded-2xl border border-line bg-surface px-4 text-[16px] text-ink placeholder:text-ink-3/80 outline-none transition focus:border-ink/30 focus:ring-4 focus:ring-ink/[0.05]";
 

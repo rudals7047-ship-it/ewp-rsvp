@@ -11,7 +11,7 @@ import { ATTEND } from "@/lib/types";
 import { IdentityBar, StepNav } from "./Flow";
 import { PlaceInfo } from "./Places";
 import { SheetBody, SheetFooter } from "./Sheet";
-import { Button, IconButton, cx, flash, inputCls, toast } from "./ui";
+import { Button, IconButton, cx, flash, inputCls, textareaCls, toast } from "./ui";
 
 type Step = { key: "name" } | { key: "q"; q: Question };
 
@@ -29,10 +29,17 @@ export function VoteFlow({
   /** 관리자 대리 입력 모드 (initialName: 미리 선택할 이름) */
   proxy?: { initialName?: string };
 }) {
-  const savedName = proxy ? (proxy.initialName ?? "") : (poll.responses.find((r) => r.own)?.name ?? local.get(keys.name) ?? "");
+  // 기억된 이름은 명단이 있으면 명단에 있을 때만 미리 선택 (다른 투표의 이름이 끼어들지 않게)
+  const remembered = poll.responses.find((r) => r.own)?.name ?? local.get(keys.name) ?? "";
+  const savedName = proxy
+    ? (proxy.initialName ?? "")
+    : poll.roster?.length && !inRoster(poll.roster, remembered) && !poll.responses.some((r) => r.own)
+      ? ""
+      : remembered;
   const existing = (n: string) => poll.responses.find((r) => nameKey(r.name) === nameKey(n));
   const [name, setName] = useState(savedName);
   const [typing, setTyping] = useState(() => !poll.roster?.length || (!!savedName && !inRoster(poll.roster, savedName)));
+  const offRoster = !!poll.roster?.length && typing && !!name.trim() && !inRoster(poll.roster, name);
   const [answers, setAnswers] = useState<Record<string, Answer>>(() => existing(savedName)?.answers ?? {});
   // 이미 응답한 사람이 2차 질문 때문에 다시 들어오면 새 질문으로 바로 이동
   const [idx, setIdx] = useState(() => {
@@ -247,6 +254,21 @@ export function VoteFlow({
                     />
                   </div>
                 )}
+                {poll.roster?.length && typing ? (
+                  <div className={cx("mt-3 rounded-xl px-3 py-2.5 text-[13px] leading-relaxed", offRoster ? "bg-[#fdf5e3] text-[#8a5a12]" : "bg-ink/[0.04] text-ink-2")}>
+                    {offRoster ? "명단에 없는 이름이에요. 결과에 '명단 외'로 표시돼요." : "명단에 없는 분만 직접 입력해 주세요."}{" "}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setTyping(false);
+                        chooseName("");
+                      }}
+                      className="font-semibold underline underline-offset-2"
+                    >
+                      명단에서 고르기
+                    </button>
+                  </div>
+                ) : null}
                 </div>
                 {prev &&
                   (lockedName ? (
@@ -441,7 +463,7 @@ function QuestionView({
           maxLength={300}
           rows={4}
           placeholder="예) 갑각류 알레르기가 있어요 / 30분 정도 늦어요"
-          className={cx(inputCls, "h-auto resize-none py-3.5 leading-relaxed")}
+          className={textareaCls}
         />
       </>
     );
