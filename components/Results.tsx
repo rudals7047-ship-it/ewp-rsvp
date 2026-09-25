@@ -16,6 +16,7 @@ import {
   Plus,
   RotateCcw,
   Share2,
+  Users,
   Trash2,
   X,
 } from "lucide-react";
@@ -29,6 +30,7 @@ import {
   keys,
   local,
   missing,
+  progressTable,
   relUntil,
   session,
   pollUrl,
@@ -75,6 +77,7 @@ export function Results({
   const [confirmDelete, setConfirmDelete] = useState(false);
   const hc = headcount(poll);
   const miss = missing(poll);
+  const prog = progressTable(poll);
   const decidedList = poll.questions.filter((q) => poll.decisions[q.id]);
   const hasOpenChoice = poll.questions.some((q) => (q.kind === "single" || q.kind === "multi") && !poll.decisions[q.id]);
 
@@ -173,39 +176,18 @@ export function Results({
               />
             )}
             {miss ? (
-              <Stat label="응답률" value={`${poll.responses.length}/${poll.roster!.length}`} sub={miss.length ? `미응답 ${miss.length}명` : "전원 응답 완료 🎉"} />
+              <Stat
+                label="응답 완료"
+                value={`${prog.rows.length - prog.pending.length}/${prog.rows.length}`}
+                sub={prog.pending.length ? `남은 사람 ${prog.pending.length}명` : "전원 응답 완료 🎉"}
+              />
             ) : (
-              <Stat label="응답" value={`${poll.responses.length}명`} sub="명단 미지정" />
+              <Stat label="응답 완료" value={`${prog.rows.length - prog.pending.length}명`} sub={prog.pending.length ? `마무리 전 ${prog.pending.length}명` : "명단 미지정"} />
             )}
           </div>
         )}
 
-        {miss && miss.length > 0 && (
-          <section className="mb-7">
-            <SectionTitle right={`${miss.length}명`}>
-              <Hourglass className="mr-1 inline size-4 -translate-y-px text-[#b7791f]" />
-              아직 응답하지 않은 사람{isAdmin && <span className="ml-1 text-[12px] font-medium text-ink-3">· 탭해서 대신 입력</span>}
-            </SectionTitle>
-            <div className="flex flex-wrap gap-1.5">
-              {miss.map((n) =>
-                isAdmin ? (
-                  <button
-                    key={n}
-                    type="button"
-                    onClick={() => onProxy(n)}
-                    className="inline-flex items-center gap-1 rounded-full border border-dashed border-ink/20 px-2.5 py-1 text-[12.5px] font-medium text-ink-2 hover:bg-ink/[0.04]"
-                  >
-                    {n} <PencilLine className="size-3" />
-                  </button>
-                ) : (
-                  <span key={n} className="rounded-full border border-dashed border-ink/20 px-2.5 py-1 text-[12.5px] font-medium text-ink-2">
-                    {n}
-                  </span>
-                ),
-              )}
-            </div>
-          </section>
-        )}
+        <ProgressTable poll={poll} isAdmin={isAdmin} onProxy={onProxy} />
 
         {poll.responses.length === 0 ? (
           <div className="rounded-2xl border border-dashed border-line py-10 text-center text-[14px] text-ink-3">
@@ -264,12 +246,12 @@ export function Results({
               const r = await shareLink(
                 pollUrl(poll.id),
                 poll.title,
-                `${shareText(poll)}${miss?.length ? `\n🙋 아직 ${miss.length}명이 응답 전이에요` : ""}\n🔒 참여 PIN은 담당자에게 확인하세요`,
+                `${shareText(poll)}${prog.pending.length ? `\n🙋 아직 ${prog.pending.length}명이 응답을 마치지 않았어요` : ""}\n🔒 참여 PIN은 담당자에게 확인하세요`,
               );
               if (r === "copied") toast("링크를 복사했어요");
             }}
           >
-            <Share2 className="size-4" /> {miss?.length ? "응답 요청" : "링크 공유"}
+            <Share2 className="size-4" /> {prog.pending.length ? "응답 요청" : "링크 공유"}
           </Button>
         </div>
 
@@ -430,6 +412,89 @@ function ResponseManager({ poll, onChange }: { poll: PollDetail; onChange: (p: P
         ))}
       </div>
     </div>
+  );
+}
+
+/** 사람별 응답 현황: 누가 어디까지 했는지 (1차·2차 구분) */
+function ProgressTable({ poll, isAdmin, onProxy }: { poll: PollDetail; isAdmin: boolean; onProxy: (name?: string) => void }) {
+  const { cols, rows, pending } = progressTable(poll);
+  if (!rows.length) return null;
+  const multiRound = cols.some((c) => c.round > 1);
+  const grid = { gridTemplateColumns: `minmax(4.5rem,1.1fr) repeat(${cols.length}, minmax(3.2rem,1fr))` };
+  return (
+    <section className="mb-8">
+      <SectionTitle right={pending.length ? `마무리 전 ${pending.length}명` : "모두 완료"}>
+        <Users className="mr-1 inline size-4 -translate-y-px text-ink-3" />
+        사람별 응답 현황
+      </SectionTitle>
+      {pending.length > 0 && (
+        <div className="mb-3 flex flex-wrap gap-1.5">
+          {pending.map((r) => {
+            const label = r.todo.includes("전체") ? "미응답" : `${r.todo.join("·")} 남음`;
+            const chip = (
+              <>
+                <b className="font-semibold">{r.name}</b>
+                <span className="text-[11.5px] opacity-80">{label}</span>
+                {isAdmin && <PencilLine className="size-3" />}
+              </>
+            );
+            return isAdmin ? (
+              <button
+                key={r.name}
+                type="button"
+                onClick={() => onProxy(r.name)}
+                className="inline-flex items-center gap-1 rounded-full bg-[#fdf5e3] px-2.5 py-1 text-[12.5px] text-[#8a5a12] active:scale-95"
+              >
+                {chip}
+              </button>
+            ) : (
+              <span key={r.name} className="inline-flex items-center gap-1 rounded-full bg-[#fdf5e3] px-2.5 py-1 text-[12.5px] text-[#8a5a12]">
+                {chip}
+              </span>
+            );
+          })}
+        </div>
+      )}
+      <div className="overflow-x-auto rounded-2xl border border-line">
+        <div className="min-w-full text-[12.5px]" role="table" aria-label="사람별 응답 현황">
+          <div role="row" className="grid items-center gap-2 border-b border-line bg-ink/[0.03] px-3 py-2 font-semibold text-ink-3" style={grid}>
+            <span role="columnheader">이름</span>
+            {cols.map((c) => (
+              <span role="columnheader" key={c.id} className="truncate">
+                {c.label}
+                {multiRound && <span className="ml-0.5 text-[10.5px] font-medium opacity-70">{c.round}차</span>}
+              </span>
+            ))}
+          </div>
+          {rows.map((r) => (
+            <div
+              role="row"
+              key={r.name}
+              className={cx("grid items-center gap-2 border-b border-line/70 px-3 py-2 last:border-b-0", r.todo.length > 0 && "bg-[#fffaf0]")}
+              style={grid}
+            >
+              <span role="cell" className="min-w-0 truncate font-semibold text-ink">
+                {r.name}
+                {r.proxy && <span className="ml-1 text-[10.5px] font-medium text-ink-3">대리</span>}
+                {r.offRoster && <span className="ml-1 text-[10.5px] font-medium text-[#9a6412]">명단 외</span>}
+              </span>
+              {r.cells.map((c, i) => (
+                <span role="cell" key={i} className="min-w-0 truncate">
+                  {c.state === "done" ? (
+                    <span className="text-ink-2">{c.text}</span>
+                  ) : c.state === "todo" ? (
+                    <span className="rounded-md bg-[#fdf5e3] px-1.5 py-0.5 text-[11.5px] font-semibold text-[#9a6412]">미응답</span>
+                  ) : (
+                    <span className="text-ink-3/60">–</span>
+                  )}
+                </span>
+              ))}
+            </div>
+          ))}
+        </div>
+      </div>
+      <p className="mt-2 text-[11.5px] text-ink-3">– 는 해당 없음(불참이거나 이미 확정된 항목){isAdmin ? " · 노란 이름을 누르면 대신 입력" : ""}</p>
+    </section>
   );
 }
 

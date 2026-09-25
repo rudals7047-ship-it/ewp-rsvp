@@ -1,6 +1,6 @@
 "use client";
 
-import { nameKey } from "./poll";
+import { nameKey, visibleQuestions } from "./poll";
 import type { Place, PlaceMenu, Region } from "./places";
 import type { PollDetail, PollSummary, Question, RosterSummary } from "./types";
 import { ATTEND } from "./types";
@@ -215,6 +215,57 @@ export function attendanceOf(poll: PollDetail, name: string) {
   return q && r ? (r.answers[q.id] as string | undefined) : undefined;
 }
 
+/* ---------- 사람별 응답 현황 ---------- */
+
+export type CellState = "done" | "todo" | "skip";
+export interface ProgressRow {
+  name: string;
+  responded: boolean;
+  offRoster: boolean;
+  proxy: boolean;
+  cells: { state: CellState; text?: string }[];
+  /** 아직 해야 할 항목 이름들 (예: ["메뉴"]) */
+  todo: string[];
+}
+
+const shortOption = (o: string) => o.replace(/\s*\([^)]*원\)$/, "").replace(/\s*·\s*[\d,]+원$/, "");
+
+/** 사람(명단 + 응답자) × 질문(참석·식당·메뉴…) 표: 누가 어디까지 했는지 */
+export function progressTable(poll: PollDetail) {
+  const cols = poll.questions
+    .filter((q) => q.kind !== "text")
+    .map((q) => ({
+      id: q.id,
+      label: q.kind === "attendance" ? "참석" : q.topic === "place" ? "식당" : q.topic === "menu" ? "메뉴" : q.title.length > 6 ? `${q.title.slice(0, 5)}…` : q.title,
+      round: q.round ?? 1,
+      q,
+    }));
+  const rosterKeys = new Set((poll.roster ?? []).map(nameKey));
+  const byKey = new Map(poll.responses.map((r) => [nameKey(r.name), r]));
+  const names = [...(poll.roster ?? []), ...poll.responses.filter((r) => !rosterKeys.has(nameKey(r.name))).map((r) => r.name)];
+  const rows: ProgressRow[] = names.map((name) => {
+    const r = byKey.get(nameKey(name));
+    if (!r) {
+      return { name, responded: false, offRoster: false, proxy: false, cells: cols.map(() => ({ state: "todo" as const })), todo: ["전체"] };
+    }
+    const vis = new Set(visibleQuestions(poll, r.answers).map((q) => q.id));
+    const todo: string[] = [];
+    const cells = cols.map(({ q, label }) => {
+      const v = r.answers[q.id];
+      const has = Array.isArray(v) ? v.length > 0 : v !== undefined && v !== "";
+      if (has) return { state: "done" as const, text: (Array.isArray(v) ? v : [v]).map(shortOption).join(", ") };
+      // 확정된 질문(투표 종료)이나 불참자에게 묻지 않는 질문은 해당 없음
+      if (poll.decisions[q.id] || !vis.has(q.id)) return { state: "skip" as const };
+      if (q.required) todo.push(label);
+      return { state: q.required ? ("todo" as const) : ("skip" as const) };
+    });
+    return { name: r.name, responded: true, offRoster: !!poll.roster?.length && !rosterKeys.has(nameKey(r.name)), proxy: !!r.proxy, cells, todo };
+  });
+  // 아직 할 일이 있는 사람을 위로
+  rows.sort((a, b) => Number(b.todo.length > 0) - Number(a.todo.length > 0));
+  return { cols, rows, pending: rows.filter((r) => r.todo.length > 0) };
+}
+
 /** 명단 대비 미응답자 */
 export function missing(poll: PollDetail) {
   if (!poll.roster?.length) return null;
@@ -241,9 +292,9 @@ export function summaryText(poll: PollDetail) {
   for (const q of poll.questions) if (poll.decisions[q.id]) lines.push(`✅ ${q.title} → ${placeLine(poll.decisions[q.id])} (확정)`);
   const hc = headcount(poll);
   if (hc) lines.push(`👥 참석 ${hc.yes}명${hc.maybe ? ` · 미정 ${hc.maybe}명` : ""} · 불참 ${hc.no}명`);
-  const miss = missing(poll);
-  lines.push(`응답 ${poll.responses.length}명${miss ? ` / 대상 ${poll.roster!.length}명` : ""}`);
-  if (miss?.length) lines.push(`⏳ 미응답: ${miss.join(", ")}`);
+  const { rows, pending } = progressTable(poll);
+  lines.push(`응답 완료 ${rows.length - pending.length}/${rows.length}명`);
+  if (pending.length) lines.push(`⏳ 마무리 전: ${pending.map((r) => `${r.name}(${r.todo.includes("전체") ? "미응답" : `${r.todo.join("·")} 남음`})`).join(", ")}`);
   lines.push("");
   for (const q of poll.questions) {
     if (q.kind === "text") {

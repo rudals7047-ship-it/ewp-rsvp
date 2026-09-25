@@ -28,7 +28,7 @@ import { RosterField } from "./Rosters";
 import { MenuSuggestions, PlacePicker } from "./Places";
 import { PinPad } from "./PinPad";
 import { Sheet, SheetBody, SheetFooter } from "./Sheet";
-import { Button, Field, flash, IconButton, Segmented, Toggle, cx, inputCls, toast } from "./ui";
+import { Button, Field, flash, IconButton, Segmented, Toggle, cx, inputCls, textareaCls, toast } from "./ui";
 
 type Step = "type" | "info" | "questions" | "pin" | "pin2" | "admin" | "done";
 type DraftQ = {
@@ -399,7 +399,7 @@ export function CreateSheet({
                       maxLength={LIMITS.note}
                       rows={2}
                       placeholder="예) 법인카드 사용, 1인 3만원 이내"
-                      className={cx(inputCls, "h-auto resize-none py-3 leading-relaxed")}
+                      className={textareaCls}
                     />
                   </Field>
                 </div>
