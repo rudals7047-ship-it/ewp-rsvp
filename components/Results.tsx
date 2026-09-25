@@ -35,10 +35,12 @@ import {
   tally,
   track,
 } from "@/lib/client";
+import { menuLabel } from "@/lib/places";
 import { LIMITS, nameKey } from "@/lib/poll";
 import type { PollDetail, Question } from "@/lib/types";
 import { ATTEND } from "@/lib/types";
 import { ChipsInput } from "./ChipsInput";
+import { MenuSuggestions, PlaceInfo } from "./Places";
 import { SheetBody, SheetFooter } from "./Sheet";
 import { Button, Toggle, cx, inputCls, toast } from "./ui";
 
@@ -127,10 +129,19 @@ export function Results({
         {/* 확정 정보 */}
         {(poll.place || decidedList.length > 0) && (
           <div className="mb-5 space-y-2">
-            {poll.place && <Decided icon={MapPin} label="장소" value={poll.place} />}
-            {decidedList.map((q) => (
-              <Decided key={q.id} icon={BadgeCheck} label={`${q.title} · 확정`} value={poll.decisions[q.id]} />
-            ))}
+            {poll.place &&
+              (poll.placeInfo[poll.place] ? (
+                <PlaceInfo p={poll.placeInfo[poll.place]} region={poll.region} label="📍 장소" dark />
+              ) : (
+                <Decided icon={MapPin} label="장소" value={poll.place} />
+              ))}
+            {decidedList.map((q) =>
+              poll.placeInfo[poll.decisions[q.id]] ? (
+                <PlaceInfo key={q.id} p={poll.placeInfo[poll.decisions[q.id]]} region={poll.region} label="✓ 확정된 식당" dark />
+              ) : (
+                <Decided key={q.id} icon={BadgeCheck} label={`${q.title} · 확정`} value={poll.decisions[q.id]} />
+              ),
+            )}
           </div>
         )}
 
@@ -559,6 +570,7 @@ function NextRound({
   const [busy, setBusy] = useState(false);
   if (poll.questions.length >= LIMITS.questions) return null;
   const place = poll.place ?? Object.values(poll.decisions)[0];
+  const placeMenus = (place && poll.placeInfo[place]?.menus) || [];
 
   if (!open) {
     return (
@@ -591,9 +603,16 @@ function NextRound({
         placeholder="질문을 입력하세요"
         className={cx(inputCls, "mb-3")}
       />
+      {placeMenus.length > 0 && (
+        <MenuSuggestions
+          menus={placeMenus}
+          selected={options}
+          onToggle={(l) => setOptions(options.includes(l) ? options.filter((x) => x !== l) : [...options, l].slice(0, LIMITS.options))}
+        />
+      )}
       <ChipsInput
-        values={options}
-        onChange={setOptions}
+        values={options.filter((o) => !placeMenus.some((m) => menuLabel(m) === o))}
+        onChange={(custom) => setOptions([...options.filter((o) => placeMenus.some((m) => menuLabel(m) === o)), ...custom].slice(0, LIMITS.options))}
         max={LIMITS.options}
         maxLength={LIMITS.option}
         label="선택지"

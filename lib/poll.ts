@@ -1,3 +1,4 @@
+import { type PlaceSnap, type Region, parseSnap, regionOf } from "./places";
 import type { Answer, Poll, PollDetail, PollResponse, PollSummary, Question, QuestionKind } from "./types";
 import { ATTEND, ATTEND_OPTIONS } from "./types";
 
@@ -35,6 +36,7 @@ export function toSummary(p: Poll, responseCount: number): PollSummary {
     status: pollStatus(p),
     responseCount,
     round: p.round ?? 1,
+    region: p.region ?? "ulsan",
   };
 }
 
@@ -46,6 +48,7 @@ export function toDetail(p: Poll, responses: PollResponse[], requesterHash?: str
     place: p.place,
     roster: p.roster,
     decisions: p.decisions ?? {},
+    placeInfo: p.placeInfo ?? {},
     questions: p.questions,
     responses: responses
       .map(({ name, answers, updatedAt, ownerHash }) => ({
@@ -79,6 +82,8 @@ export interface CreateInput {
   note?: string;
   place?: string;
   roster?: string[];
+  region: Region;
+  placeInfo?: Record<string, PlaceSnap>;
   template: "meal" | "general";
   eventAt?: string;
   deadline?: string;
@@ -157,6 +162,16 @@ export function parseCreate(body: unknown): Parsed<CreateInput> {
     if (!hasAttendance || q.kind === "attendance") delete q.onlyIfAttending;
   });
 
+  // 식당 스냅샷: 실제 선택지나 장소 이름에 해당하는 것만 보관
+  const allowed = new Set([str(b.place, LIMITS.place), ...questions.flatMap((q) => q.options)].filter(Boolean));
+  const placeInfo: Record<string, PlaceSnap> = {};
+  if (b.placeInfo && typeof b.placeInfo === "object") {
+    for (const [k, v] of Object.entries(b.placeInfo as Record<string, unknown>).slice(0, 20)) {
+      const snap = parseSnap(v);
+      if (snap && allowed.has(k)) placeInfo[k] = snap;
+    }
+  }
+
   const eventAt = isoOrUndef(b.eventAt);
   const deadline = isoOrUndef(b.deadline);
   if (deadline && eventAt && Date.parse(deadline) > Date.parse(eventAt)) {
@@ -170,6 +185,8 @@ export function parseCreate(body: unknown): Parsed<CreateInput> {
       note: str(b.note, LIMITS.note) || undefined,
       place: str(b.place, LIMITS.place) || undefined,
       roster: parseRoster(b.roster),
+      region: regionOf(b.region),
+      placeInfo: Object.keys(placeInfo).length ? placeInfo : undefined,
       template,
       eventAt,
       deadline,

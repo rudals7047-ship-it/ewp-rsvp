@@ -1,5 +1,6 @@
 import "server-only";
 import { Redis } from "@upstash/redis";
+import type { Place } from "./places";
 import type { Poll, PollResponse } from "./types";
 
 /**
@@ -23,12 +24,19 @@ export interface Store {
   getOrCreateSecret(): Promise<string>;
   /** 저장된 비밀키 조회 (생성하지 않음) */
   getSecret(): Promise<string | null>;
+  /** 식당 공용 목록: 사용자 추가·수정분 (시드 위에 덮어씀) */
+  listPlaceEdits(): Promise<Place[]>;
+  savePlace(p: Place): Promise<void>;
+  placeUses(): Promise<Record<string, number>>;
+  addPlaceUses(ids: string[]): Promise<void>;
 }
 
 const POLL = (id: string) => `poll:${id}`;
 const RESP = (id: string) => `resp:${id}`;
 const INDEX = "polls";
 const SECRET = "app:secret";
+const PLACES = "places";
+const PLACE_USES = "place-uses";
 
 function parse<T>(v: unknown): T {
   return (typeof v === "string" ? JSON.parse(v) : v) as T;
@@ -106,6 +114,23 @@ function redisStore(redis: Redis): Store {
       const v = await redis.get<string>(SECRET);
       return v ? String(v) : null;
     },
+    async listPlaceEdits() {
+      const all = await redis.hgetall<Record<string, unknown>>(PLACES);
+      return all ? Object.values(all).map((v) => parse<Place>(v)) : [];
+    },
+    async savePlace(pl) {
+      await redis.hset(PLACES, { [pl.id]: JSON.stringify(pl) });
+    },
+    async placeUses() {
+      const all = await redis.hgetall<Record<string, unknown>>(PLACE_USES);
+      return Object.fromEntries(Object.entries(all ?? {}).map(([k, v]) => [k, Number(v) || 0]));
+    },
+    async addPlaceUses(ids) {
+      if (!ids.length) return;
+      const p = redis.pipeline();
+      for (const id of ids) p.hincrby(PLACE_USES, id, 1);
+      await p.exec();
+    },
     async getOrCreateSecret() {
       const existing = await redis.get<string>(SECRET);
       if (existing) return String(existing);
@@ -116,6 +141,8 @@ function redisStore(redis: Redis): Store {
 }
 
 interface Mem {
+  places: Map<string, Place>;
+  placeUses: Map<string, number>;
   polls: Map<string, Poll>;
   resp: Map<string, Map<string, PollResponse>>;
   counters: Map<string, { n: number; exp: number }>;
@@ -125,6 +152,8 @@ interface Mem {
 function memoryStore(): Store {
   const g = globalThis as unknown as { __mem?: Mem };
   const m = (g.__mem ??= {
+    places: new Map(),
+    placeUses: new Map(),
     polls: new Map(),
     resp: new Map(),
     counters: new Map(),
@@ -183,6 +212,18 @@ function memoryStore(): Store {
     },
     async getSecret() {
       return m.secret;
+    },
+    async listPlaceEdits() {
+      return structuredClone([...m.places.values()]);
+    },
+    async savePlace(pl) {
+      m.places.set(pl.id, structuredClone(pl));
+    },
+    async placeUses() {
+      return Object.fromEntries(m.placeUses);
+    },
+    async addPlaceUses(ids) {
+      for (const id of ids) m.placeUses.set(id, (m.placeUses.get(id) ?? 0) + 1);
     },
   };
 }

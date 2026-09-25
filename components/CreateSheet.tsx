@@ -4,6 +4,8 @@ import { AnimatePresence, motion } from "motion/react";
 import {
   ArrowRight,
   Check,
+  Eye,
+  MapPin,
   ChevronLeft,
   ClipboardCopy,
   KeyRound,
@@ -19,8 +21,10 @@ import {
 import { useState } from "react";
 import { ApiError, api, copyText, fmtDate, keys, kstToIso, kstToday, local, shareLink, track } from "@/lib/client";
 import { LIMITS } from "@/lib/poll";
+import { type Place, type Region, menuLabel, toSnap } from "@/lib/places";
 import type { QuestionKind, Template } from "@/lib/types";
 import { ChipsInput } from "./ChipsInput";
+import { MenuSuggestions, PlacePicker } from "./Places";
 import { PinPad } from "./PinPad";
 import { Sheet, SheetBody, SheetFooter } from "./Sheet";
 import { Button, Field, IconButton, Segmented, Toggle, cx, inputCls, toast } from "./ui";
@@ -55,12 +59,14 @@ export function CreateSheet({
   onClose,
   teams,
   defaultTeam,
+  region,
   onCreated,
 }: {
   open: boolean;
   onClose: () => void;
   teams: string[];
   defaultTeam: string | null;
+  region: Region;
   onCreated: (id: string, team: string) => void;
 }) {
   const [step, setStep] = useState<Step>("type");
@@ -84,8 +90,8 @@ export function CreateSheet({
   const [roster, setRoster] = useState<string[]>(() => rosterFor(defaultTeam));
   // 식사 모임 구성
   const [placeMode, setPlaceMode] = useState<"vote" | "fixed" | "none">("vote");
-  const [candidates, setCandidates] = useState<string[]>([]);
-  const [place, setPlace] = useState("");
+  const [candidatePlaces, setCandidatePlaces] = useState<Place[]>([]);
+  const [fixedPlace, setFixedPlace] = useState<Place[]>([]);
   const [menuLater, setMenuLater] = useState(true);
   const [menus, setMenus] = useState<string[]>([]);
   const [menuMulti, setMenuMulti] = useState(false);
@@ -109,6 +115,12 @@ export function CreateSheet({
   const finalTitle = title.trim() || autoTitle;
   const deadlineIso = deadlineMode === "custom" && deadline ? new Date(`${deadline}:00+09:00`).toISOString() : undefined;
 
+  const candidates = Array.from(new Set(candidatePlaces.map((p) => p.name)));
+  const place = fixedPlace[0]?.name ?? "";
+  const placeInfo = Object.fromEntries(
+    (placeMode === "vote" ? candidatePlaces : placeMode === "fixed" ? fixedPlace : []).map((p) => [p.name, toSnap(p)]),
+  );
+  const menuSource = placeMode === "fixed" ? (fixedPlace[0]?.menus ?? []) : [];
   const mealQs: DraftQ[] = [
     { key: "a", kind: "attendance", title: "참석하시나요?", options: [] },
     ...(placeMode === "vote" && candidates.length ? [{ key: "r", kind: "multi" as const, title: "어느 식당이 좋으세요?", options: candidates }] : []),
@@ -146,6 +158,8 @@ export function CreateSheet({
         title: finalTitle,
         note: note.trim() || undefined,
         place: isMeal && placeMode === "fixed" ? place.trim() : undefined,
+        placeInfo: isMeal ? placeInfo : undefined,
+        region,
         roster: roster.length ? roster : undefined,
         eventAt,
         deadline: deadlineIso,
@@ -395,24 +409,18 @@ export function CreateSheet({
                     />
                     <div className="mt-3">
                       {placeMode === "vote" && (
-                        <ChipsInput
-                          values={candidates}
-                          onChange={setCandidates}
-                          max={LIMITS.options}
-                          maxLength={LIMITS.option}
-                          label="식당 후보"
-                          placeholder="식당 후보 추가"
-                          emptyPlaceholder="예) 한우명가, 스시오 (쉼표로 여러 곳)"
-                        />
+                        <PlacePicker region={region} mode="multi" selected={candidatePlaces} onChange={setCandidatePlaces} max={LIMITS.options} />
                       )}
                       {placeMode === "fixed" && (
-                        <input
-                          value={place}
-                          onChange={(e) => setPlace(e.target.value)}
-                          maxLength={LIMITS.place}
-                          aria-label="식당 이름"
-                          placeholder="식당 이름 (예: 한우명가 역삼점)"
-                          className={inputCls}
+                        <PlacePicker
+                          region={region}
+                          mode="single"
+                          selected={fixedPlace}
+                          onChange={(v) => {
+                            setFixedPlace(v);
+                            // 식당을 고르면 대표 메뉴 6개를 선택지로 미리 채움 (탭으로 조정)
+                            setMenus((v[0]?.menus ?? []).slice(0, 6).map(menuLabel));
+                          }}
                         />
                       )}
                       {placeMode === "none" && <p className="text-[13px] text-ink-3">식당은 투표하지 않아요. 참석 여부와 메뉴만 받아요.</p>}
@@ -440,14 +448,20 @@ export function CreateSheet({
                       </div>
                     ) : (
                       <>
+                        <MenuSuggestions
+                          menus={menuSource}
+                          selected={menus}
+                          onToggle={(l) => setMenus(menus.includes(l) ? menus.filter((x) => x !== l) : [...menus, l].slice(0, LIMITS.options))}
+                        />
+                        {/* 식당 메뉴에서 고른 항목은 위에 표시되므로, 아래에는 직접 추가한 항목만 */}
                         <ChipsInput
-                          values={menus}
-                          onChange={setMenus}
+                          values={menus.filter((m) => !menuSource.some((x) => menuLabel(x) === m))}
+                          onChange={(custom) => setMenus([...menus.filter((m) => menuSource.some((x) => menuLabel(x) === m)), ...custom].slice(0, LIMITS.options))}
                           max={LIMITS.options}
                           maxLength={LIMITS.option}
                           label="메뉴"
                           placeholder="메뉴 추가"
-                          emptyPlaceholder="예) 김치찌개, 된장찌개 (비워두면 생략)"
+                          emptyPlaceholder={menuSource.length ? "목록에 없는 메뉴 직접 추가" : "예) 김치찌개, 된장찌개 (비워두면 생략)"}
                         />
                         {menus.length > 0 && (
                           <div className="mt-3">
@@ -465,6 +479,18 @@ export function CreateSheet({
                     </span>
                     <Toggle checked={askNote} onChange={setAskNote} label="" ariaLabel="요청사항 받기" />
                   </div>
+
+                  <FlowPreview
+                    steps={[
+                      ...(placeMode === "fixed" && place ? [{ t: `장소 안내 · ${place}`, s: "선택 없이 화면 위에 자동으로 보여줘요", auto: true }] : []),
+                      { t: "이름 선택", s: roster.length ? "명단에서 탭" : "이름 입력" },
+                      { t: "참석 여부", s: "참석 · 미정 · 불참" },
+                      ...(placeMode === "vote" && candidates.length ? [{ t: `식당 투표 · ${candidates.length}곳`, s: "주소·대표메뉴와 함께 표시" }] : []),
+                      ...((placeMode !== "vote" || !menuLater) && menus.length ? [{ t: `메뉴 선택 · ${menus.length}개`, s: menuMulti ? "복수 선택" : "하나만 선택" }] : []),
+                      ...(placeMode === "vote" && menuLater ? [{ t: "식당 확정 후 → 2차 메뉴 투표", s: "관리자가 확정하면 열려요", later: true }] : []),
+                      ...(askNote ? [{ t: "요청사항", s: "선택 응답 · 건너뛰기 가능" }] : []),
+                    ]}
+                  />
                 </div>
                   </>
                 ) : (
@@ -550,6 +576,37 @@ export function CreateSheet({
         </motion.div>
       </AnimatePresence>
     </Sheet>
+  );
+}
+
+/** 생성자에게 '참여자는 이렇게 진행돼요'를 보여주는 미리보기 */
+function FlowPreview({ steps }: { steps: { t: string; s: string; auto?: boolean; later?: boolean }[] }) {
+  let n = 0;
+  return (
+    <div className="rounded-2xl bg-ink/[0.03] p-4">
+      <p className="mb-3 flex items-center gap-1.5 text-[12.5px] font-bold text-ink-2">
+        <Eye className="size-4" /> 참여자 화면 미리보기
+      </p>
+      <ol className="space-y-0">
+        {steps.map((st, i) => (
+          <li key={i} className="relative flex gap-3 pb-3 last:pb-0">
+            {i < steps.length - 1 && <span className="absolute left-[11px] top-6 h-[calc(100%-18px)] w-px bg-ink/10" />}
+            <span
+              className={cx(
+                "relative flex size-6 shrink-0 items-center justify-center rounded-full text-[11px] font-bold",
+                st.auto ? "bg-accent text-white" : st.later ? "border border-dashed border-ink/30 text-ink-3" : "bg-ink text-white",
+              )}
+            >
+              {st.auto ? <MapPin className="size-3.5" /> : st.later ? "2" : ++n}
+            </span>
+            <span className="min-w-0 pt-0.5">
+              <span className={cx("block text-[14px] font-semibold", st.later && "text-ink-3")}>{st.t}</span>
+              <span className="block text-[12px] text-ink-3">{st.s}</span>
+            </span>
+          </li>
+        ))}
+      </ol>
+    </div>
   );
 }
 

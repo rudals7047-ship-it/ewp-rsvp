@@ -1,9 +1,10 @@
 "use client";
 
 import { AnimatePresence, motion } from "motion/react";
-import { Database, Plus, ShieldCheck, Sparkles } from "lucide-react";
+import { Database, MapPin, Plus, ShieldCheck, Sparkles } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, keys, local } from "@/lib/client";
+import { REGIONS, type Region, regionOf } from "@/lib/places";
 import type { PollDetail, PollSummary } from "@/lib/types";
 import { CreateSheet } from "./CreateSheet";
 import { CardSkeleton, PollCard } from "./PollCard";
@@ -16,6 +17,7 @@ export function Home({ initialPollId }: { initialPollId?: string }) {
   const [polls, setPolls] = useState<PollSummary[] | null>(null);
   const [storage, setStorage] = useState<"redis" | "memory">("redis");
   const [team, setTeam] = useState<string>(ALL);
+  const [region, setRegion] = useState<Region>("ulsan");
   const [openPoll, setOpenPoll] = useState<PollSummary | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [createKey, setCreateKey] = useState(0);
@@ -41,6 +43,8 @@ export function Home({ initialPollId }: { initialPollId?: string }) {
 
   // 초기화: 팀 선택 복원, 관리 링크(#admin=) 처리, 목록 로드
   useEffect(() => {
+    const site = new URLSearchParams(location.search).get("site") ?? local.get(keys.region);
+    if (site) setRegion(regionOf(site));
     const q = new URLSearchParams(location.search).get("team");
     const saved = q ?? local.get(keys.team);
     if (saved) setTeam(saved);
@@ -69,8 +73,10 @@ export function Home({ initialPollId }: { initialPollId?: string }) {
     if (!polls || !pending.current) return;
     const p = polls.find((x) => x.id === pending.current);
     pending.current = undefined;
-    if (p) setOpenPoll(p);
-    else {
+    if (p) {
+      if (p.region !== region) setRegion(p.region);
+      setOpenPoll(p);
+    } else {
       toast("투표를 찾을 수 없어요");
       history.replaceState(null, "", "/");
     }
@@ -107,14 +113,27 @@ export function Home({ initialPollId }: { initialPollId?: string }) {
     history.replaceState(history.state, "", url);
   };
 
+  const selectRegion = (r: Region) => {
+    setRegion(r);
+    local.set(keys.region, r);
+    setTeam(ALL);
+    local.del(keys.team);
+    const url = new URL(location.href);
+    url.searchParams.set("site", r);
+    url.searchParams.delete("team");
+    history.replaceState(history.state, "", url);
+  };
+
+  const regionPolls = useMemo(() => (polls ?? []).filter((p) => p.region === region), [polls, region]);
+
   const teams = useMemo(() => {
     const seen = new Set<string>();
-    for (const p of polls ?? []) seen.add(p.team);
+    for (const p of regionPolls) seen.add(p.team);
     if (team !== ALL) seen.add(team);
     return [...seen];
-  }, [polls, team]);
+  }, [regionPolls, team]);
 
-  const visible = useMemo(() => (polls ?? []).filter((p) => team === ALL || p.team === team), [polls, team]);
+  const visible = useMemo(() => regionPolls.filter((p) => team === ALL || p.team === team), [regionPolls, team]);
   const live = visible.filter((p) => p.status === "open");
   const done = visible.filter((p) => p.status === "closed");
 
@@ -164,6 +183,28 @@ export function Home({ initialPollId }: { initialPollId?: string }) {
           </div>
         )}
 
+        {/* 사업장 선택 */}
+        <div className="mb-3 flex gap-1 rounded-2xl bg-ink/[0.05] p-1" role="radiogroup" aria-label="사업장">
+          {REGIONS.map((r) => {
+            const on = r.id === region;
+            const open = (polls ?? []).filter((p) => p.region === r.id && p.status === "open").length;
+            return (
+              <button
+                key={r.id}
+                role="radio"
+                aria-checked={on}
+                onClick={() => selectRegion(r.id)}
+                className={cx("relative flex h-11 flex-1 items-center justify-center gap-1.5 rounded-xl text-[14.5px] font-semibold transition", on ? "text-ink" : "text-ink-3 hover:text-ink-2")}
+              >
+                {on && <motion.span layoutId="region-pill" className="absolute inset-0 rounded-xl bg-surface shadow-soft" transition={{ type: "spring", damping: 30, stiffness: 400 }} />}
+                <MapPin className="relative size-4" />
+                <span className="relative">{r.label}</span>
+                {open > 0 && <span className="relative rounded-full bg-accent-soft px-1.5 text-[11.5px] font-bold text-accent tabular-nums">{open}</span>}
+              </button>
+            );
+          })}
+        </div>
+
         {/* 팀 선택 */}
         <nav
           aria-label="팀 선택"
@@ -172,7 +213,7 @@ export function Home({ initialPollId }: { initialPollId?: string }) {
           <div className="no-scrollbar -mx-4 flex gap-2 overflow-x-auto px-4 sm:-mx-6 sm:px-6">
             {[ALL, ...teams].map((t) => {
               const on = team === t;
-              const count = (polls ?? []).filter((p) => p.status === "open" && (t === ALL || p.team === t)).length;
+              const count = regionPolls.filter((p) => p.status === "open" && (t === ALL || p.team === t)).length;
               return (
                 <button
                   key={t}
@@ -285,6 +326,7 @@ export function Home({ initialPollId }: { initialPollId?: string }) {
         onClose={closeCreate}
         teams={teams}
         defaultTeam={team === ALL ? null : team}
+        region={region}
         onCreated={async (id, t) => {
           if (team !== ALL && team !== t) selectTeam(t);
           await load();

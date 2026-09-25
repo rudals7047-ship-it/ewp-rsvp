@@ -1,3 +1,5 @@
+import type { PlaceSnap, Region } from "./places";
+
 export type QuestionKind = "attendance" | "single" | "multi" | "text";
 
 export interface Question {
@@ -36,6 +38,10 @@ export interface Poll {
   roster?: string[];
   /** 이미 정해진 장소 (선택) */
   place?: string;
+  /** 사업장 (울산/당진) */
+  region?: Region;
+  /** 식당 정보 스냅샷: 선택지(식당 이름) 또는 place → 상세 */
+  placeInfo?: Record<string, PlaceSnap>;
 }
 
 export type Answer = string | string[];
@@ -65,6 +71,7 @@ export interface PollSummary {
   status: PollStatus;
   responseCount: number;
   round: number;
+  region: Region;
 }
 
 /** PIN 인증 후 볼 수 있는 정보 */
@@ -73,6 +80,7 @@ export interface PollDetail extends PollSummary {
   place?: string;
   roster?: string[];
   decisions: Record<string, string>;
+  placeInfo: Record<string, PlaceSnap>;
   questions: Question[];
   responses: PollResponse[];
 }

@@ -4,9 +4,11 @@ import { AnimatePresence, motion } from "motion/react";
 import { Check, ChevronLeft, CircleHelp, Lock, UserRound, X } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 import { ApiError, api, keys, local, vibrate } from "@/lib/client";
+import { menuLabel, naverUrl } from "@/lib/places";
 import { nameKey, pendingQuestions, visibleQuestions } from "@/lib/poll";
 import type { Answer, PollDetail, Question } from "@/lib/types";
 import { ATTEND } from "@/lib/types";
+import { PlaceInfo } from "./Places";
 import { SheetBody, SheetFooter } from "./Sheet";
 import { Button, IconButton, cx, inputCls, toast } from "./ui";
 
@@ -47,6 +49,10 @@ export function VoteFlow({
   const step = steps[Math.min(idx, steps.length - 1)];
   const isLast = idx >= steps.length - 1;
 
+  // 이미 정해진/확정된 식당: 질문 대신 안내 카드로 보여줌
+  const decidedPlace = poll.questions.map((q) => poll.decisions[q.id]).find((o) => o && poll.placeInfo[o]);
+  const placeKey = (poll.place && poll.placeInfo[poll.place] ? poll.place : undefined) ?? decidedPlace;
+  const placeCard = placeKey ? poll.placeInfo[placeKey] : undefined;
   // 확정된 결과(예: 식당) 안내 문구
   const context = [
     poll.place && `📍 ${poll.place}`,
@@ -222,6 +228,11 @@ export function VoteFlow({
               </>
             ) : (
               <>
+                {placeCard && step.q.kind === "attendance" && (
+                  <div className="mb-6">
+                    <PlaceInfo p={placeCard} region={poll.region} label={poll.place ? "📍 장소가 정해졌어요" : "✓ 확정된 식당"} dark />
+                  </div>
+                )}
                 {context.length > 0 && step.q.kind !== "attendance" && (
                   <div className="mb-4 flex flex-wrap gap-1.5">
                     {context.map((c) => (
@@ -231,7 +242,7 @@ export function VoteFlow({
                     ))}
                   </div>
                 )}
-                <QuestionView q={step.q} answer={answers[step.q.id]} onPick={pick} onText={(v) => setAnswers({ ...answers, [step.q.id]: v })} index={idx} total={qCount} />
+                <QuestionView q={step.q} placeInfo={poll.placeInfo} answer={answers[step.q.id]} onPick={pick} onText={(v) => setAnswers({ ...answers, [step.q.id]: v })} index={idx} total={qCount} />
               </>
             )}
           </motion.div>
@@ -264,6 +275,34 @@ export function VoteFlow({
   );
 }
 
+/** 식당 선택지 아래 한 줄 정보: 분류 · 대표 메뉴 */
+function PlaceLine({ p, on }: { p: PollDetail["placeInfo"][string]; on: boolean }) {
+  const top = p.menus[0];
+  const line = [p.category, top && menuLabel(top)].filter(Boolean).join(" · ");
+  return (
+    <span className={cx("mt-0.5 flex items-center gap-2 text-[12.5px] font-medium", on ? "text-white/65" : "text-ink-3")}>
+      {line && <span className="min-w-0 truncate">{line}</span>}
+      <span
+        role="link"
+        tabIndex={0}
+        onClick={(e) => {
+          e.stopPropagation();
+          window.open(naverUrl(p), "_blank", "noopener");
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.stopPropagation();
+            window.open(naverUrl(p), "_blank", "noopener");
+          }
+        }}
+        className={cx("shrink-0 cursor-pointer underline underline-offset-2", on ? "text-white/80" : "text-ink-2")}
+      >
+        정보
+      </span>
+    </span>
+  );
+}
+
 function StepHead({ eyebrow, title, sub }: { eyebrow?: string; title: string; sub?: string }) {
   return (
     <div className="mb-6">
@@ -282,6 +321,7 @@ const ATT_STYLE: Record<string, { icon: typeof Check; on: string; iconBg: string
 
 function QuestionView({
   q,
+  placeInfo,
   answer,
   onPick,
   onText,
@@ -289,6 +329,7 @@ function QuestionView({
   total,
 }: {
   q: Question;
+  placeInfo: PollDetail["placeInfo"];
   answer: Answer | undefined;
   onPick: (q: Question, v: string) => void;
   onText: (v: string) => void;
@@ -373,7 +414,10 @@ function QuestionView({
               >
                 {on && <Check className="size-3.5" strokeWidth={3.5} />}
               </span>
-              <span className="min-w-0 flex-1 break-keep">{o}</span>
+              <span className="min-w-0 flex-1 break-keep">
+                {o}
+                {placeInfo[o] && <PlaceLine p={placeInfo[o]} on={on} />}
+              </span>
             </motion.button>
           );
         })}

@@ -1,6 +1,7 @@
 "use client";
 
 import { nameKey } from "./poll";
+import type { Place, PlaceMenu, Region } from "./places";
 import type { PollDetail, PollSummary, Question } from "./types";
 import { ATTEND } from "./types";
 
@@ -29,6 +30,7 @@ export const keys = {
   name: "me:name",
   owner: "me:owner",
   team: "me:team",
+  region: "me:region",
   access: (id: string) => `access:${id}`,
   admin: (id: string) => `admin:${id}`,
 };
@@ -104,6 +106,17 @@ export const api = {
       | { action: "decide"; questionId: string; option: string | null }
       | { action: "addQuestion"; question: { kind: "single" | "multi"; title: string; options: string[] } },
   ) => request<{ poll: PollDetail }>(`/api/polls/${id}`, { method: "PATCH", body: JSON.stringify(body) }, id),
+  places: (region: Region) => request<{ places: Place[] }>(`/api/places?region=${region}`),
+  savePlace: (p: {
+    id?: string;
+    region: Region;
+    name: string;
+    category: string;
+    address: string;
+    phone: string;
+    menus: PlaceMenu[];
+    naverId?: string;
+  }) => request<{ place: Place }>("/api/places", { method: "POST", body: JSON.stringify(p) }),
   removeResponse: (id: string, name: string) =>
     request<{ poll: PollDetail }>(`/api/polls/${id}/responses?name=${encodeURIComponent(name)}`, { method: "DELETE" }, id),
   remove: (id: string) => request<{ ok: true }>(`/api/polls/${id}`, { method: "DELETE" }, id),
@@ -213,8 +226,12 @@ export function headcount(poll: PollDetail) {
 export function summaryText(poll: PollDetail) {
   const lines: string[] = [`[${poll.team}] ${poll.title}`];
   if (poll.eventAt) lines.push(`📅 ${fmtDate(poll.eventAt)}`);
-  if (poll.place) lines.push(`📍 ${poll.place}`);
-  for (const q of poll.questions) if (poll.decisions[q.id]) lines.push(`✅ ${q.title} → ${poll.decisions[q.id]} (확정)`);
+  const placeLine = (name: string) => {
+    const i = poll.placeInfo[name];
+    return [name, i?.address, i?.phone].filter(Boolean).join(" · ");
+  };
+  if (poll.place) lines.push(`📍 ${placeLine(poll.place)}`);
+  for (const q of poll.questions) if (poll.decisions[q.id]) lines.push(`✅ ${q.title} → ${placeLine(poll.decisions[q.id])} (확정)`);
   const hc = headcount(poll);
   if (hc) lines.push(`👥 참석 ${hc.yes}명${hc.maybe ? ` · 미정 ${hc.maybe}명` : ""} · 불참 ${hc.no}명`);
   const miss = missing(poll);

@@ -37,5 +37,8 @@ export async function POST(req: Request) {
     adminHash: await hashAdmin(adminToken),
   };
   await store.savePoll(poll);
+  // 사용한 식당은 공용 목록에서 위로 올라오도록 사용 횟수 증가
+  const ids = Object.values(poll.placeInfo ?? {}).map((p) => p.id).filter(Boolean);
+  if (ids.length) await store.addPlaceUses([...new Set(ids)]).catch(() => {});
   return json({ id, adminToken }, 201);
 }
