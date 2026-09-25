@@ -209,7 +209,10 @@ export function flash(id: string, message?: string) {
   setTimeout(() => el.classList.remove("attention"), 1600);
   const input = el.matches("input,textarea") ? (el as HTMLInputElement) : el.querySelector<HTMLInputElement>("input,textarea");
   // 검색 드롭다운(combobox)은 포커스하면 목록이 열려 안내를 가리므로 강조만
-  if (input && input.getAttribute("role") !== "combobox") input.focus({ preventScroll: true });
+  if (input && input.getAttribute("role") !== "combobox") {
+    input.focus({ preventScroll: true });
+    setTimeout(refreshCaret, 450); // 부드러운 스크롤이 끝난 뒤 커서 위치 갱신 (iOS)
+  }
 }
 
 /* ---------- Toast ---------- */
@@ -323,4 +326,21 @@ export function ConfirmCard({
       </div>
     </motion.div>
   );
+}
+
+/**
+ * iOS Safari: 입력 중에 입력칸이 들어 있는 영역이 움직이면(키보드·스크롤 보정) 글자는 이동하는데
+ * 커서만 예전 자리에 남는 문제가 있어, 선택 위치를 잠깐 바꿨다 되돌려 커서를 다시 그리게 함
+ */
+export function refreshCaret() {
+  const el = document.activeElement;
+  if (!(el instanceof HTMLTextAreaElement || el instanceof HTMLInputElement)) return;
+  if (el instanceof HTMLInputElement && !/^(text|search|tel|email|url|password|number)$/.test(el.type)) return;
+  const start = el.selectionStart;
+  const end = el.selectionEnd;
+  if (start == null || end == null) return;
+  try {
+    el.setSelectionRange(start > 0 ? start - 1 : Math.min(1, el.value.length), start > 0 ? start - 1 : Math.min(1, el.value.length));
+    requestAnimationFrame(() => el.setSelectionRange(start, end));
+  } catch {}
 }
