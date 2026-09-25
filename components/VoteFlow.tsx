@@ -22,12 +22,15 @@ export function VoteFlow({
   onDone,
   onCancel,
   proxy,
+  onWho,
 }: {
   poll: PollDetail;
   onDone: (poll: PollDetail, name: string, answers: Record<string, Answer>) => void;
   onCancel: () => void;
   /** 관리자 대리 입력 모드 (initialName: 미리 선택할 이름) */
   proxy?: { initialName?: string };
+  /** 이름 단계를 지나 입력 대상이 정해지면 알림 (하단 바 명의 표시용) */
+  onWho?: (name: string) => void;
 }) {
   // 기억된 이름은 명단이 있으면 명단에 있을 때만 미리 선택 (다른 투표의 이름이 끼어들지 않게)
   const remembered = poll.responses.find((r) => r.own)?.name ?? local.get(keys.name) ?? "";
@@ -63,6 +66,15 @@ export function VoteFlow({
   // 가장 멀리 진행한 단계 (기존 응답이 있으면 전체 단계를 이미 지난 것으로 봄)
   const [reached, setReached] = useState(() => (existing(savedName) ? 99 : 0));
   useEffect(() => setReached((r) => Math.max(r, idx)), [idx]);
+  useEffect(() => {
+    if (idx > 0 && name.trim()) onWho?.(name.trim());
+  }, [idx, name, onWho]);
+  // 단계가 바뀌면 새 화면을 맨 위부터 보여줌 (이전 단계의 스크롤 위치가 남지 않게)
+  const top = useRef<HTMLDivElement>(null);
+  const stepKey = step.key === "name" ? "name" : step.q.id;
+  useEffect(() => {
+    top.current?.parentElement?.scrollTo({ top: 0 });
+  }, [stepKey]);
 
   // 단계 이동줄: 확정된 질문(예: 식당)은 잠긴 완료 단계로 함께 표시
   const stepLabel = (q: Question) =>
@@ -162,20 +174,17 @@ export function VoteFlow({
 
   return (
     <>
-      <div className="shrink-0 space-y-2 px-3 pt-2 sm:pt-4">
-        <div className="flex items-center gap-1 pr-12">
+      <div className="shrink-0 px-3 pt-2">
+        <div className="flex items-center gap-1">
           <IconButton label="이전" onClick={back} className="shrink-0">
             <ChevronLeft className="size-6" />
           </IconButton>
           <StepNav steps={navItems} current={navCurrent} reached={navReached} onJump={jumpNav} />
         </div>
-        <div className="flex flex-wrap items-center gap-1.5 px-2">
-          <IdentityBar mode={proxy ? "proxy" : "self"} name={name.trim() || null} />
-          <span className="rounded-full bg-ink/[0.05] px-2.5 py-1 text-[12px] font-semibold text-ink-3">{poll.stageLabel}</span>
-        </div>
       </div>
 
       <SheetBody className="pb-6 pt-5">
+        <div ref={top} aria-hidden />
         <AnimatePresence mode="wait" custom={dir} initial={false}>
           <motion.div
             key={step.key === "name" ? "name" : step.q.id}
@@ -321,7 +330,7 @@ export function VoteFlow({
       </SheetBody>
 
       {(step.key === "name" || current?.kind === "multi" || current?.kind === "text" || answers[current?.id ?? ""] !== undefined) && (
-        <SheetFooter>
+        <SheetFooter className="pb-3">
           {step.key === "name" ? (
             <Button
               className="w-full"

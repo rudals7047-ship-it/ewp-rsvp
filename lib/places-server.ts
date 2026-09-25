@@ -17,3 +17,4 @@ export async function getPlaces(region?: Region): Promise<Place[]> {
 export async function getPlace(id: string) {
   return (await getPlaces()).find((p) => p.id === id) ?? null;
 }
+

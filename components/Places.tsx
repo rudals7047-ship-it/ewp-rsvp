@@ -1,11 +1,12 @@
 "use client";
 
 import { AnimatePresence, motion } from "motion/react";
-import { Check, ExternalLink, Loader2, MapPin, Pencil, Phone, Plus, Search, Store, Trash2, X } from "lucide-react";
+import { Check, ExternalLink, Loader2, MapPin, Pencil, Phone, Plus, Search, Store, Trash2, Undo2, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ApiError, api } from "@/lib/client";
 import {
   PLACE_LIMITS,
+  parseLabel,
   type Place,
   type PlaceMenu,
   type PlaceSnap,
@@ -338,6 +339,20 @@ export function PlaceEditor({
   const set = <K extends keyof Place>(k: K, v: Place[K]) => setF((x) => ({ ...x, [k]: v }));
   const setMenu = (i: number, m: PlaceMenu) => set("menus", f.menus.map((x, j) => (j === i ? m : x)));
 
+  async function revert() {
+    setBusy(true);
+    try {
+      const { place: saved } = await api.revertPlace(place.id);
+      upsertCache(saved);
+      toast("직전 내용으로 되돌렸어요");
+      onSaved(saved);
+    } catch (e) {
+      toast(e instanceof ApiError ? e.message : "되돌리기에 실패했어요");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function save() {
     setBusy(true);
     try {
@@ -394,7 +409,14 @@ export function PlaceEditor({
           </button>
         )}
       </div>
-      <p className="mt-3 text-[12px] leading-relaxed text-ink-3">공용 목록에 저장돼 다른 투표에서도 바로 쓸 수 있어요. 이미 만든 투표에는 영향이 없어요.</p>
+      <p className="mt-3 text-[12px] leading-relaxed text-ink-3">
+        저장을 눌러야 공용 목록에 반영돼요. 이미 만든 투표에는 영향이 없고, 잘못 고쳤다면 직전 내용으로 되돌릴 수 있어요.
+      </p>
+      {!isNew && place.prev && (
+        <button type="button" disabled={busy} onClick={revert} className="mt-2 inline-flex items-center gap-1 text-[12.5px] font-semibold text-ink-2 underline underline-offset-4">
+          <Undo2 className="size-3.5" /> 직전 저장 내용으로 되돌리기
+        </button>
+      )}
       <div className="mt-3 grid grid-cols-[1fr_1.6fr] gap-2">
         <Button variant="secondary" size="md" onClick={onCancel}>
           취소
@@ -404,6 +426,39 @@ export function PlaceEditor({
         </Button>
       </div>
     </motion.div>
+  );
+}
+
+/* ---------- 직접 넣은 메뉴를 식당 정보에 저장 (누를 때만, 추가만) ---------- */
+
+export function SaveMenus({ placeId, placeName, labels }: { placeId?: string; placeName: string; labels: string[] }) {
+  const [done, setDone] = useState<string[]>([]);
+  const [busy, setBusy] = useState(false);
+  const todo = labels.filter((l) => !done.includes(l));
+  if (!placeId || !todo.length) return null;
+  async function save() {
+    setBusy(true);
+    try {
+      const { place, added } = await api.addMenus(placeId!, todo.map(parseLabel));
+      upsertCache(place);
+      setDone((d) => [...d, ...todo]);
+      toast(added ? `${placeName} 메뉴 ${added}개를 목록에 저장했어요` : "이미 목록에 있는 메뉴예요");
+    } catch (e) {
+      toast(e instanceof ApiError ? e.message : "저장에 실패했어요");
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <button
+      type="button"
+      disabled={busy}
+      onClick={save}
+      className="mt-2 inline-flex items-center gap-1 rounded-full bg-ink/[0.05] px-3 py-1.5 text-[12.5px] font-semibold text-ink-2 hover:bg-ink/[0.08] active:scale-95"
+    >
+      {busy ? <Loader2 className="size-3.5 animate-spin" /> : <Plus className="size-3.5" />}
+      직접 넣은 메뉴 {todo.length}개 &lsquo;{placeName}&rsquo; 목록에도 저장
+    </button>
   );
 }
 
