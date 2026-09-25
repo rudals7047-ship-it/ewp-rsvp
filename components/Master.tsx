@@ -1,11 +1,11 @@
 "use client";
 
-import { KeyRound, LogOut, ShieldCheck, Trash2 } from "lucide-react";
+import { KeyRound, LogOut, Pencil, Plus, ShieldCheck, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { ApiError, api, keys, session } from "@/lib/client";
 import { REGIONS, type Place, type Region, searchPlaces } from "@/lib/places";
 import type { RosterSummary } from "@/lib/types";
-import { dropFromCache, usePlaces } from "./Places";
+import { PlaceEditor, dropFromCache, usePlaces } from "./Places";
 import { Sheet, SheetBody } from "./Sheet";
 import { Button, Segmented, cx, inputCls, toast } from "./ui";
 
@@ -77,7 +77,7 @@ function Console({ onLogout }: { onLogout: () => void }) {
       <ul className="space-y-1.5 rounded-2xl bg-ink/[0.04] px-4 py-3 text-[13px] leading-relaxed text-ink-2">
         <li>• <b>투표</b>: 목록에서 누르면 PIN 없이 열리고, 관리 탭에서 마감·다시 열기·삭제·대신 입력을 할 수 있어요</li>
         <li>• <b>명단</b>: PIN 없이 열어 수정하거나 삭제할 수 있어요</li>
-        <li>• <b>식당</b>: 공용 목록에서 잘못된 식당을 삭제할 수 있어요 (이미 만든 투표에는 영향 없음)</li>
+        <li>• <b>식당</b>: 공용 목록의 식당을 추가·수정·삭제할 수 있어요 (이미 만든 투표에는 영향 없음)</li>
       </ul>
       <Segmented value={region} onChange={setRegion} options={REGIONS.map((r) => ({ value: r.id, label: r.label }))} />
       <Segmented
@@ -171,7 +171,10 @@ function PlaceAdmin({ region }: { region: Region }) {
   const places = usePlaces(region);
   const [q, setQ] = useState("");
   const [confirm, setConfirm] = useState<string | null>(null);
+  // 편집 중인 식당 id ("new"면 새 식당 추가)
+  const [editing, setEditing] = useState<string | null>(null);
   const shown = places ? searchPlaces(places, q).slice(0, 30) : null;
+  const blank: Place = { id: "", region, name: q.trim(), category: "", address: "", phone: "", menus: [], status: "user", uses: 0 };
   async function remove(p: Place) {
     try {
       await api.hidePlace(p.id);
@@ -185,32 +188,54 @@ function PlaceAdmin({ region }: { region: Region }) {
   return (
     <div>
       <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="식당 검색" aria-label="식당 검색" autoComplete="off" className={cx(inputCls, "mb-2")} />
+      {editing === "new" ? (
+        <div className="mb-2">
+          <PlaceEditor place={blank} isNew onCancel={() => setEditing(null)} onSaved={() => setEditing(null)} />
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setEditing("new")}
+          className="mb-2 flex h-11 w-full items-center justify-center gap-1 rounded-2xl border border-dashed border-ink/20 text-[13.5px] font-semibold text-ink-2"
+        >
+          <Plus className="size-4" /> {q.trim() ? `'${q.trim()}' 새 식당으로 추가` : "새 식당 추가"}
+        </button>
+      )}
       {!shown ? (
         <p className="py-6 text-center text-[13px] text-ink-3">불러오는 중…</p>
       ) : (
         <ul className="divide-y divide-line rounded-2xl border border-line">
-          {shown.map((p) => (
-            <li key={p.id} className="flex items-center gap-2 px-4 py-2.5">
-              <span className="min-w-0 flex-1">
-                <span className="block truncate text-[14px] font-semibold">{p.name}</span>
-                <span className="block truncate text-[12px] text-ink-3">
-                  {[p.status === "user" ? "직접 추가" : null, p.category, p.menus.length ? `메뉴 ${p.menus.length}` : "메뉴 없음"].filter(Boolean).join(" · ")}
-                </span>
-              </span>
-              {confirm === p.id ? (
-                <Button variant="danger" size="md" className="h-9 px-3 text-[13px]" onClick={() => remove(p)}>
-                  삭제 확인
-                </Button>
-              ) : (
-                <button type="button" aria-label={`${p.name} 삭제`} onClick={() => setConfirm(p.id)} className="flex size-9 items-center justify-center rounded-full text-ink-3 hover:bg-danger/10 hover:text-danger">
-                  <Trash2 className="size-4" />
+          {shown.map((p) =>
+            editing === p.id ? (
+              <li key={p.id} className="p-2">
+                <PlaceEditor place={p} onCancel={() => setEditing(null)} onSaved={() => setEditing(null)} />
+              </li>
+            ) : (
+              <li key={p.id} className="flex items-center gap-1 px-4 py-2.5">
+                <button type="button" onClick={() => setEditing(p.id)} className="min-w-0 flex-1 text-left">
+                  <span className="block truncate text-[14px] font-semibold">{p.name}</span>
+                  <span className="block truncate text-[12px] text-ink-3">
+                    {[p.status === "user" ? "직접 추가" : null, p.category, p.phone, p.menus.length ? `메뉴 ${p.menus.length}` : "메뉴 없음"].filter(Boolean).join(" · ")}
+                  </span>
                 </button>
-              )}
-            </li>
-          ))}
+                <button type="button" aria-label={`${p.name} 편집`} onClick={() => setEditing(p.id)} className="flex size-9 items-center justify-center rounded-full text-ink-3 hover:bg-ink/[0.05] hover:text-ink">
+                  <Pencil className="size-4" />
+                </button>
+                {confirm === p.id ? (
+                  <Button variant="danger" size="md" className="h-9 px-3 text-[13px]" onClick={() => remove(p)}>
+                    삭제 확인
+                  </Button>
+                ) : (
+                  <button type="button" aria-label={`${p.name} 삭제`} onClick={() => setConfirm(p.id)} className="flex size-9 items-center justify-center rounded-full text-ink-3 hover:bg-danger/10 hover:text-danger">
+                    <Trash2 className="size-4" />
+                  </button>
+                )}
+              </li>
+            ),
+          )}
         </ul>
       )}
-      <p className="mt-2 text-[12px] text-ink-3">식당 정보 수정은 투표 만들기의 식당 편집에서 누구나 할 수 있고, 잘못 고친 경우 &lsquo;직전 저장 내용으로 되돌리기&rsquo;로 복구돼요.</p>
+      <p className="mt-2 text-[12px] text-ink-3">식당 이름을 누르면 전화·주소·메뉴·가격을 고칠 수 있어요. 저장 전에 바뀌는 내용을 한 번 더 보여주고, 잘못 고쳤다면 &lsquo;직전 저장 내용으로 되돌리기&rsquo;로 복구돼요.</p>
     </div>
   );
 }
