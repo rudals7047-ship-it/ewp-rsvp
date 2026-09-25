@@ -1,5 +1,6 @@
 "use client";
 
+import { nameKey } from "./poll";
 import type { PollDetail, PollSummary, Question } from "./types";
 import { ATTEND } from "./types";
 
@@ -79,8 +80,13 @@ export const api = {
       { method: "POST", body: JSON.stringify({ name, answers }) },
       id,
     ),
-  admin: (id: string, action: "close" | "reopen") =>
-    request<{ poll: PollDetail }>(`/api/polls/${id}`, { method: "PATCH", body: JSON.stringify({ action }) }, id),
+  admin: (
+    id: string,
+    body:
+      | { action: "close" | "reopen" }
+      | { action: "decide"; questionId: string; option: string | null }
+      | { action: "addQuestion"; question: { kind: "single" | "multi"; title: string; options: string[] } },
+  ) => request<{ poll: PollDetail }>(`/api/polls/${id}`, { method: "PATCH", body: JSON.stringify(body) }, id),
   remove: (id: string) => request<{ ok: true }>(`/api/polls/${id}`, { method: "DELETE" }, id),
 };
 
@@ -170,10 +176,32 @@ export function attendanceOf(poll: PollDetail, name: string) {
   return q && r ? (r.answers[q.id] as string | undefined) : undefined;
 }
 
+/** 명단 대비 미응답자 */
+export function missing(poll: PollDetail) {
+  if (!poll.roster?.length) return null;
+  const done = new Set(poll.responses.map((r) => nameKey(r.name)));
+  return poll.roster.filter((n) => !done.has(nameKey(n)));
+}
+
+export function headcount(poll: PollDetail) {
+  const q = poll.questions.find((x) => x.kind === "attendance");
+  if (!q) return null;
+  const t = tally(poll, q);
+  const get = (o: string) => t.find((x) => x.option === o)?.count ?? 0;
+  return { yes: get(ATTEND.yes), maybe: get(ATTEND.maybe), no: get(ATTEND.no) };
+}
+
 export function summaryText(poll: PollDetail) {
   const lines: string[] = [`[${poll.team}] ${poll.title}`];
   if (poll.eventAt) lines.push(`📅 ${fmtDate(poll.eventAt)}`);
-  lines.push(`응답 ${poll.responses.length}명`, "");
+  if (poll.place) lines.push(`📍 ${poll.place}`);
+  for (const q of poll.questions) if (poll.decisions[q.id]) lines.push(`✅ ${q.title} → ${poll.decisions[q.id]} (확정)`);
+  const hc = headcount(poll);
+  if (hc) lines.push(`👥 참석 ${hc.yes}명${hc.maybe ? ` · 미정 ${hc.maybe}명` : ""} · 불참 ${hc.no}명`);
+  const miss = missing(poll);
+  lines.push(`응답 ${poll.responses.length}명${miss ? ` / 대상 ${poll.roster!.length}명` : ""}`);
+  if (miss?.length) lines.push(`⏳ 미응답: ${miss.join(", ")}`);
+  lines.push("");
   for (const q of poll.questions) {
     if (q.kind === "text") {
       const texts = poll.responses.filter((r) => r.answers[q.id]).map((r) => `- ${r.name}: ${r.answers[q.id]}`);
@@ -183,7 +211,8 @@ export function summaryText(poll: PollDetail) {
     lines.push(`■ ${q.title}`);
     for (const t of tally(poll, q)) {
       if (q.kind !== "attendance" && t.count === 0) continue;
-      lines.push(`- ${t.option} ${t.count}${t.names.length ? ` (${t.names.join(", ")})` : ""}`);
+      const mark = poll.decisions[q.id] === t.option ? " ✅" : "";
+      lines.push(`- ${t.option} ${t.count}${mark}${t.names.length ? ` (${t.names.join(", ")})` : ""}`);
     }
     lines.push("");
   }

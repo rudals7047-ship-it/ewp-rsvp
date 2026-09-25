@@ -9,14 +9,15 @@ import { cx } from "./ui";
 export function PollCard({
   poll,
   onOpen,
-  responded,
+  doneRound,
   isAdmin,
   showTeam,
   now,
 }: {
   poll: PollSummary;
   onOpen: () => void;
-  responded: boolean;
+  /** 이 기기에서 응답한 차수 (0 = 미응답) */
+  doneRound: number;
   isAdmin: boolean;
   showTeam: boolean;
   now: number;
@@ -25,6 +26,8 @@ export function PollCard({
   const end = poll.deadline ?? poll.eventAt;
   const left = end ? relUntil(end, now) : null;
   const d = poll.eventAt ? dday(poll.eventAt) : null;
+  const responded = doneRound >= poll.round;
+  const newRound = doneRound > 0 && !responded;
 
   if (poll.status === "open") {
     return (
@@ -45,6 +48,9 @@ export function PollCard({
             <span className="live-dot relative size-1.5 rounded-full bg-[#34d399] text-[#34d399]" />
             진행 중
           </span>
+          {poll.round > 1 && (
+            <span className="shrink-0 rounded-full bg-[#f5c96a]/20 px-2.5 py-1 text-[12px] font-bold text-[#f5c96a]">{poll.round}차 투표</span>
+          )}
           {showTeam && (
             <span className="truncate rounded-full bg-white/10 px-2.5 py-1 text-[12px] font-medium text-white/80">
               {poll.team}
@@ -82,7 +88,11 @@ export function PollCard({
           </span>
           <span className="flex shrink-0 items-center gap-2 whitespace-nowrap">
             {isAdmin && <Crown className="size-4 text-[#f5c96a]" aria-label="내가 만든 투표" />}
-            {responded ? (
+            {newRound ? (
+              <span className="inline-flex items-center gap-1 rounded-full bg-[#f5c96a] px-3.5 py-1.5 text-[13px] font-bold text-ink">
+                {poll.round}차 참여 <ArrowUpRight className="size-4" strokeWidth={2.6} />
+              </span>
+            ) : responded ? (
               <span className="inline-flex items-center gap-1 rounded-full bg-white/10 px-3 py-1.5 text-[13px] font-semibold">
                 <Check className="size-3.5" strokeWidth={3} /> 응답함
               </span>

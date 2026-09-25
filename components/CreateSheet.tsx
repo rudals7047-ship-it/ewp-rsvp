@@ -20,6 +20,7 @@ import { useState } from "react";
 import { ApiError, api, copyText, fmtDate, keys, kstToIso, kstToday, local, shareLink, track } from "@/lib/client";
 import { LIMITS } from "@/lib/poll";
 import type { QuestionKind, Template } from "@/lib/types";
+import { ChipsInput } from "./ChipsInput";
 import { PinPad } from "./PinPad";
 import { Sheet, SheetBody, SheetFooter } from "./Sheet";
 import { Button, Field, IconButton, Segmented, Toggle, cx, inputCls, toast } from "./ui";
@@ -30,19 +31,24 @@ type DraftQ = { key: string; kind: QuestionKind; title: string; options: string[
 let seq = 0;
 const k = () => `d${++seq}`;
 
-function mealQuestions(): DraftQ[] {
-  return [
-    { key: k(), kind: "attendance", title: "참석하시나요?", options: [] },
-    { key: k(), kind: "multi", title: "어느 식당이 좋으세요?", options: [] },
-    { key: k(), kind: "single", title: "어떤 메뉴가 끌리세요?", options: [] },
-    { key: k(), kind: "text", title: "요청사항이 있으면 알려주세요", options: [] },
-  ];
-}
 function generalQuestions(): DraftQ[] {
   return [{ key: k(), kind: "single", title: "", options: [] }];
 }
 
 const SLOTS = { lunch: "12:00", dinner: "18:30" } as const;
+
+type Created = { id: string; adminToken: string; title: string; team: string; menuLater: boolean };
+
+/** 팀별로 마지막에 쓴 참여 명단을 기억 */
+function rosterFor(team: string | null): string[] {
+  if (!team) return [];
+  try {
+    const v = JSON.parse(local.get(`roster:${team}`) ?? "[]");
+    return Array.isArray(v) ? v.filter((x) => typeof x === "string") : [];
+  } catch {
+    return [];
+  }
+}
 
 export function CreateSheet({
   open,
@@ -64,16 +70,30 @@ export function CreateSheet({
   const [addingTeam, setAddingTeam] = useState(!teams.length);
   const [title, setTitle] = useState("");
   const [date, setDate] = useState(kstToday());
-  const [slot, setSlot] = useState<"lunch" | "dinner" | "custom">("dinner");
+  // 오전에는 점심, 그 이후에는 저녁을 기본 선택
+  const [slot, setSlot] = useState<"lunch" | "dinner" | "custom">(() =>
+    Number(new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Seoul", hour: "numeric", hourCycle: "h23" }).format(new Date())) < 11
+      ? "lunch"
+      : "dinner",
+  );
   const [time, setTime] = useState("19:00");
   const [deadlineMode, setDeadlineMode] = useState<"auto" | "custom">("auto");
   const [deadline, setDeadline] = useState("");
   const [note, setNote] = useState("");
-  const [questions, setQuestions] = useState<DraftQ[]>(mealQuestions);
+  const [questions, setQuestions] = useState<DraftQ[]>(generalQuestions);
+  const [roster, setRoster] = useState<string[]>(() => rosterFor(defaultTeam));
+  // 식사 모임 구성
+  const [placeMode, setPlaceMode] = useState<"vote" | "fixed" | "none">("vote");
+  const [candidates, setCandidates] = useState<string[]>([]);
+  const [place, setPlace] = useState("");
+  const [menuLater, setMenuLater] = useState(true);
+  const [menus, setMenus] = useState<string[]>([]);
+  const [menuMulti, setMenuMulti] = useState(false);
+  const [askNote, setAskNote] = useState(true);
   const [pin, setPin] = useState("");
   const [pinMsg, setPinMsg] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [created, setCreated] = useState<{ id: string; adminToken: string; title: string; team: string } | null>(null);
+  const [created, setCreated] = useState<Created | null>(null);
 
   const close = onClose;
 
@@ -89,7 +109,15 @@ export function CreateSheet({
   const finalTitle = title.trim() || autoTitle;
   const deadlineIso = deadlineMode === "custom" && deadline ? new Date(`${deadline}:00+09:00`).toISOString() : undefined;
 
-  const validQs = questions.filter((q) => (q.kind === "single" || q.kind === "multi" ? q.options.length > 0 : true) && (q.title.trim() || q.kind === "attendance"));
+  const mealQs: DraftQ[] = [
+    { key: "a", kind: "attendance", title: "참석하시나요?", options: [] },
+    ...(placeMode === "vote" && candidates.length ? [{ key: "r", kind: "multi" as const, title: "어느 식당이 좋으세요?", options: candidates }] : []),
+    ...((placeMode !== "vote" || !menuLater || !candidates.length) && menus.length
+      ? [{ key: "m", kind: (menuMulti ? "multi" : "single") as QuestionKind, title: "어떤 메뉴로 하시겠어요?", options: menus }]
+      : []),
+    ...(askNote ? [{ key: "n", kind: "text" as const, title: "요청사항이 있으면 알려주세요", options: [] }] : []),
+  ];
+  const validQs = (isMeal ? mealQs : questions).filter((q) => (q.kind === "single" || q.kind === "multi" ? q.options.length > 0 : true) && (q.title.trim() || q.kind === "attendance"));
   const infoError = !team.trim()
     ? "팀을 선택해 주세요"
     : !finalTitle
@@ -98,8 +126,16 @@ export function CreateSheet({
         ? "모임 시각이 이미 지났어요"
         : deadlineIso && Date.parse(deadlineIso) < Date.now()
           ? "마감 시각이 이미 지났어요"
-          : null;
-  const qError = validQs.length === 0 ? "질문과 선택지를 1개 이상 입력해 주세요" : questions.some((q) => (q.kind === "single" || q.kind === "multi") && q.options.length > 0 && !q.title.trim()) ? "질문 제목을 입력해 주세요" : null;
+          : deadlineIso && eventAt && Date.parse(deadlineIso) > Date.parse(eventAt)
+            ? "마감은 모임 시작 전이어야 해요"
+            : null;
+  const qError = isMeal
+    ? placeMode === "vote" && candidates.length < 2
+      ? "식당 후보를 2곳 이상 입력해 주세요"
+      : placeMode === "fixed" && !place.trim()
+        ? "식당 이름을 입력해 주세요"
+        : null
+    : validQs.length === 0 ? "질문과 선택지를 1개 이상 입력해 주세요" : questions.some((q) => (q.kind === "single" || q.kind === "multi") && q.options.length > 0 && !q.title.trim()) ? "질문 제목을 입력해 주세요" : null;
 
   async function create(pinValue: string) {
     setBusy(true);
@@ -109,6 +145,8 @@ export function CreateSheet({
         team: team.trim(),
         title: finalTitle,
         note: note.trim() || undefined,
+        place: isMeal && placeMode === "fixed" ? place.trim() : undefined,
+        roster: roster.length ? roster : undefined,
         eventAt,
         deadline: deadlineIso,
         pin: pinValue,
@@ -117,7 +155,8 @@ export function CreateSheet({
       const res = await api.create(body);
       local.set(keys.admin(res.id), res.adminToken);
       local.set(keys.team, body.team);
-      setCreated({ ...res, title: body.title, team: body.team });
+      if (roster.length) local.set(`roster:${body.team}`, JSON.stringify(roster));
+      setCreated({ ...res, title: body.title, team: body.team, menuLater: isMeal && placeMode === "vote" && menuLater });
       track("poll-created");
       onCreated(res.id, body.team);
       go("done");
@@ -173,7 +212,6 @@ export function CreateSheet({
                   tags={["점심/저녁", "참석 집계", "식당·메뉴 투표"]}
                   onClick={() => {
                     setTemplate("meal");
-                    setQuestions(mealQuestions());
                     go("info");
                   }}
                   featured
@@ -207,6 +245,7 @@ export function CreateSheet({
                           onClick={() => {
                             setTeam(t);
                             setAddingTeam(false);
+                            setRoster(rosterFor(t));
                           }}
                         >
                           {t}
@@ -235,6 +274,21 @@ export function CreateSheet({
                         className={cx(inputCls, teams.length ? "mt-2.5" : "")}
                       />
                     )}
+                  </Field>
+
+                  <Field label="참여 대상 명단" hint={roster.length ? `${roster.length}명 · 팀별로 기억돼요` : "선택"}>
+                    <ChipsInput
+                      values={roster}
+                      onChange={setRoster}
+                      max={LIMITS.roster}
+                      maxLength={LIMITS.name}
+                      label="이름"
+                      placeholder="이름 추가"
+                      emptyPlaceholder="예) 김민준, 이서연 (쉼표로 여러 명)"
+                    />
+                    <p className="mt-2 text-[12.5px] leading-relaxed text-ink-3">
+                      입력하면 참여자는 이름을 탭해서 고르고, 결과에서 미응답자를 바로 확인할 수 있어요.
+                    </p>
                   </Field>
 
                   {isMeal && (
@@ -325,10 +379,97 @@ export function CreateSheet({
           {step === "questions" && (
             <>
               <SheetBody className="pb-6 pt-5">
-                <Head
-                  title="무엇을 물어볼까요?"
-                  sub={isMeal ? "선택지를 비워둔 질문은 자동으로 빠져요. 불참자에게는 식당·메뉴를 묻지 않아요." : "질문과 선택지를 입력하세요."}
-                />
+                {isMeal ? (
+                  <>
+                <Head title="식당과 메뉴" sub="참석 여부는 항상 먼저 물어보고, 불참자에게는 식당·메뉴를 묻지 않아요." />
+                <div className="space-y-6">
+                  <Field label="식당">
+                    <Segmented
+                      value={placeMode}
+                      onChange={setPlaceMode}
+                      options={[
+                        { value: "vote", label: "후보 투표" },
+                        { value: "fixed", label: "이미 정함" },
+                        { value: "none", label: "묻지 않음" },
+                      ]}
+                    />
+                    <div className="mt-3">
+                      {placeMode === "vote" && (
+                        <ChipsInput
+                          values={candidates}
+                          onChange={setCandidates}
+                          max={LIMITS.options}
+                          maxLength={LIMITS.option}
+                          label="식당 후보"
+                          placeholder="식당 후보 추가"
+                          emptyPlaceholder="예) 한우명가, 스시오 (쉼표로 여러 곳)"
+                        />
+                      )}
+                      {placeMode === "fixed" && (
+                        <input
+                          value={place}
+                          onChange={(e) => setPlace(e.target.value)}
+                          maxLength={LIMITS.place}
+                          aria-label="식당 이름"
+                          placeholder="식당 이름 (예: 한우명가 역삼점)"
+                          className={inputCls}
+                        />
+                      )}
+                      {placeMode === "none" && <p className="text-[13px] text-ink-3">식당은 투표하지 않아요. 참석 여부와 메뉴만 받아요.</p>}
+                    </div>
+                  </Field>
+
+                  <Field label="메뉴">
+                    {placeMode === "vote" && (
+                      <div className="mb-3">
+                        <Segmented
+                          value={menuLater ? "later" : "now"}
+                          onChange={(v) => setMenuLater(v === "later")}
+                          options={[
+                            { value: "later", label: "식당 확정 후 받기", sub: "추천 · 2단계" },
+                            { value: "now", label: "지금 함께 받기", sub: "한 번에" },
+                          ]}
+                        />
+                      </div>
+                    )}
+                    {placeMode === "vote" && menuLater ? (
+                      <div className="rounded-2xl bg-accent-soft px-4 py-3.5 text-[13.5px] leading-relaxed text-[#0b6b51]">
+                        <b className="font-semibold">① 참석 + 식당 투표</b> → 관리자가 식당을 확정 → <b className="font-semibold">② 그 식당 메뉴로 2차 투표</b>
+                        <br />
+                        응답했던 사람들의 카드에 &lsquo;2차 참여&rsquo; 버튼이 표시돼요.
+                      </div>
+                    ) : (
+                      <>
+                        <ChipsInput
+                          values={menus}
+                          onChange={setMenus}
+                          max={LIMITS.options}
+                          maxLength={LIMITS.option}
+                          label="메뉴"
+                          placeholder="메뉴 추가"
+                          emptyPlaceholder="예) 김치찌개, 된장찌개 (비워두면 생략)"
+                        />
+                        {menus.length > 0 && (
+                          <div className="mt-3">
+                            <Toggle checked={menuMulti} onChange={setMenuMulti} label="복수 선택 허용" />
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </Field>
+
+                  <div className="flex items-center justify-between rounded-2xl border border-line px-4 py-3.5">
+                    <span>
+                      <span className="block text-[14.5px] font-semibold">요청사항 받기</span>
+                      <span className="block text-[12.5px] text-ink-3">알레르기, 늦참 등 자유 입력 (선택 응답)</span>
+                    </span>
+                    <Toggle checked={askNote} onChange={setAskNote} label="" ariaLabel="요청사항 받기" />
+                  </div>
+                </div>
+                  </>
+                ) : (
+                  <>
+                    <Head title="무엇을 물어볼까요?" sub="질문과 선택지를 입력하세요." />
                 <div className="space-y-3">
                   {questions.map((q, i) => (
                     <QuestionEditor
@@ -354,6 +495,8 @@ export function CreateSheet({
                       주관식
                     </AddBtn>
                   </div>
+                )}
+                  </>
                 )}
               </SheetBody>
               <SheetFooter>
@@ -509,19 +652,7 @@ function QuestionEditor({
   onChange: (q: DraftQ) => void;
   onRemove?: () => void;
 }) {
-  const [draft, setDraft] = useState("");
   const choice = q.kind === "single" || q.kind === "multi";
-
-  function add(raw: string) {
-    const items = raw
-      .split(/[,\n]/)
-      .map((s) => s.trim().slice(0, LIMITS.option))
-      .filter(Boolean);
-    if (!items.length) return;
-    const next = Array.from(new Set([...q.options, ...items])).slice(0, LIMITS.options);
-    onChange({ ...q, options: next });
-    setDraft("");
-  }
 
   return (
     <div className="rounded-2xl border border-line bg-surface p-4">
@@ -558,52 +689,16 @@ function QuestionEditor({
 
       {choice && (
         <>
-          <div className="mt-3 flex flex-wrap gap-1.5">
-            {q.options.map((o) => (
-              <span key={o} className="inline-flex items-center gap-1 rounded-full bg-ink/[0.06] py-1 pl-3 pr-1 text-[14px] font-medium">
-                {o}
-                <button
-                  type="button"
-                  aria-label={`${o} 삭제`}
-                  onClick={() => onChange({ ...q, options: q.options.filter((x) => x !== o) })}
-                  className="flex size-6 items-center justify-center rounded-full text-ink-3 hover:bg-ink/10"
-                >
-                  <X className="size-3.5" />
-                </button>
-              </span>
-            ))}
-          </div>
-          <div className="mt-2 flex gap-2">
-            <input
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.nativeEvent.isComposing) {
-                  e.preventDefault();
-                  add(draft);
-                }
-              }}
-              onBlur={() => draft.trim() && add(draft)}
-              onPaste={(e) => {
-                const t = e.clipboardData.getData("text");
-                if (/[,\n]/.test(t)) {
-                  e.preventDefault();
-                  add(t);
-                }
-              }}
-              enterKeyHint="done"
-              placeholder={q.options.length ? "선택지 추가" : "선택지 입력 후 추가 (쉼표로 여러 개)"}
-              className="h-11 min-w-0 flex-1 rounded-xl bg-ink/[0.04] px-3.5 text-[16px] outline-none placeholder:text-ink-3/80 focus:bg-ink/[0.06]"
+          <div className="mt-3">
+            <ChipsInput
+              values={q.options}
+              onChange={(options) => onChange({ ...q, options })}
+              max={LIMITS.options}
+              maxLength={LIMITS.option}
+              label="선택지"
+              placeholder="선택지 추가"
+              emptyPlaceholder="선택지 입력 후 추가 (쉼표로 여러 개)"
             />
-            <button
-              type="button"
-              onClick={() => add(draft)}
-              disabled={!draft.trim()}
-              aria-label="선택지 추가"
-              className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-ink text-white transition disabled:bg-ink/10 disabled:text-ink-3"
-            >
-              <Plus className="size-5" />
-            </button>
           </div>
           <div className="mt-3">
             <Toggle checked={q.kind === "multi"} onChange={(v) => onChange({ ...q, kind: v ? "multi" : "single" })} label="복수 선택 허용" />
@@ -620,7 +715,7 @@ function CreatedView({
   pin,
   onClose,
 }: {
-  created: { id: string; adminToken: string; title: string; team: string };
+  created: Created;
   pin: string;
   onClose: () => void;
 }) {
@@ -670,6 +765,12 @@ function CreatedView({
             <ClipboardCopy className="size-4" /> PIN 포함 메시지 복사
           </Button>
         </div>
+
+        {created.menuLater && (
+          <div className="mt-5 rounded-2xl bg-accent-soft p-4 text-[13px] leading-relaxed text-[#0b6b51]">
+            <b className="font-semibold">다음 단계</b> — 식당 투표가 모이면 카드를 열고 결과 화면의 <b className="font-semibold">&lsquo;식당 확정&rsquo;</b>을 눌러 메뉴 투표를 시작하세요.
+          </div>
+        )}
 
         <div className="mt-5 rounded-2xl border border-line p-4 text-[13px] leading-relaxed text-ink-3">
           <p>

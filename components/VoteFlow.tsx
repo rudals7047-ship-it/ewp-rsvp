@@ -4,13 +4,15 @@ import { AnimatePresence, motion } from "motion/react";
 import { Check, ChevronLeft, CircleHelp, UserRound, X } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 import { ApiError, api, keys, local, vibrate } from "@/lib/client";
-import { nameKey, visibleQuestions } from "@/lib/poll";
+import { nameKey, pendingQuestions, visibleQuestions } from "@/lib/poll";
 import type { Answer, PollDetail, Question } from "@/lib/types";
 import { ATTEND } from "@/lib/types";
 import { SheetBody, SheetFooter } from "./Sheet";
 import { Button, IconButton, cx, inputCls, toast } from "./ui";
 
 type Step = { key: "name" } | { key: "q"; q: Question };
+
+const inRoster = (roster: string[] | undefined, n: string) => !!roster?.some((r) => nameKey(r) === nameKey(n));
 
 export function VoteFlow({
   poll,
@@ -24,18 +26,38 @@ export function VoteFlow({
   const savedName = local.get(keys.name) ?? "";
   const existing = (n: string) => poll.responses.find((r) => nameKey(r.name) === nameKey(n));
   const [name, setName] = useState(savedName);
+  const [typing, setTyping] = useState(() => !poll.roster?.length || (!!savedName && !inRoster(poll.roster, savedName)));
   const [answers, setAnswers] = useState<Record<string, Answer>>(() => existing(savedName)?.answers ?? {});
-  const [idx, setIdx] = useState(0);
+  // 이미 응답한 사람이 2차 질문 때문에 다시 들어오면 새 질문으로 바로 이동
+  const [idx, setIdx] = useState(() => {
+    const ex = existing(savedName);
+    if (!ex) return 0;
+    const pending = pendingQuestions(poll, ex.answers)[0];
+    if (!pending) return 0;
+    return visibleQuestions(poll, ex.answers).findIndex((q) => q.id === pending.id) + 1;
+  });
   const [dir, setDir] = useState(1);
   const [busy, setBusy] = useState(false);
   const advancing = useRef(false);
 
   const steps: Step[] = useMemo(
-    () => [{ key: "name" }, ...visibleQuestions(poll.questions, answers).map((q) => ({ key: "q" as const, q }))],
-    [poll.questions, answers],
+    () => [{ key: "name" }, ...visibleQuestions(poll, answers).map((q) => ({ key: "q" as const, q }))],
+    [poll, answers],
   );
   const step = steps[Math.min(idx, steps.length - 1)];
   const isLast = idx >= steps.length - 1;
+
+  // 확정된 결과(예: 식당) 안내 문구
+  const context = [
+    poll.place && `📍 ${poll.place}`,
+    ...poll.questions.filter((q) => poll.decisions[q.id]).map((q) => `✓ ${poll.decisions[q.id]} 확정`),
+  ].filter(Boolean) as string[];
+
+  function chooseName(n: string) {
+    setName(n);
+    const ex = existing(n);
+    setAnswers(ex ? ex.answers : {});
+  }
 
   async function submit(final: Record<string, Answer>) {
     setBusy(true);
@@ -52,7 +74,7 @@ export function VoteFlow({
   }
 
   function next(nextAnswers = answers) {
-    const vis = [{ key: "name" }, ...visibleQuestions(poll.questions, nextAnswers)];
+    const vis = [{ key: "name" }, ...visibleQuestions(poll, nextAnswers)];
     if (idx >= vis.length - 1) return submit(nextAnswers);
     setDir(1);
     setIdx((i) => i + 1);
@@ -87,6 +109,7 @@ export function VoteFlow({
   const multiCount = current?.kind === "multi" ? ((answers[current.id] as string[] | undefined)?.length ?? 0) : 0;
   const textVal = current?.kind === "text" ? ((answers[current.id] as string | undefined) ?? "") : "";
   const prev = step.key === "name" && name.trim() ? existing(name) : undefined;
+  const responded = new Set(poll.responses.map((r) => nameKey(r.name)));
 
   return (
     <>
@@ -120,34 +143,84 @@ export function VoteFlow({
           >
             {step.key === "name" ? (
               <>
-                <StepHead eyebrow={poll.title} title="이름을 알려주세요" sub="같은 이름으로 다시 응답하면 기존 응답이 수정돼요." />
-                <div className="relative">
-                  <UserRound className="pointer-events-none absolute left-4 top-1/2 size-5 -translate-y-1/2 text-ink-3" />
-                  <input
-                    autoFocus={!savedName}
-                    value={name}
-                    maxLength={20}
-                    onChange={(e) => {
-                      setName(e.target.value);
-                      const ex = existing(e.target.value);
-                      if (ex) setAnswers(ex.answers);
-                    }}
-                    onKeyDown={(e) => e.key === "Enter" && name.trim() && next()}
-                    placeholder="예) 김민준"
-                    autoComplete="name"
-                    enterKeyHint="next"
-                    className={cx(inputCls, "pl-12 text-[17px] font-medium")}
-                  />
-                </div>
+                <StepHead
+                  eyebrow={poll.title}
+                  title={poll.roster?.length && !typing ? "본인 이름을 선택하세요" : "이름을 알려주세요"}
+                  sub="같은 이름으로 다시 응답하면 기존 응답이 수정돼요."
+                />
+                {poll.roster?.length && !typing ? (
+                  <>
+                    <div className="grid grid-cols-3 gap-2">
+                      {poll.roster.map((n) => {
+                        const on = nameKey(n) === nameKey(name);
+                        const done = responded.has(nameKey(n));
+                        return (
+                          <button
+                            key={n}
+                            type="button"
+                            aria-pressed={on}
+                            onClick={() => {
+                              vibrate(6);
+                              chooseName(n);
+                            }}
+                            className={cx(
+                              "relative flex h-12 items-center justify-center gap-1 rounded-2xl border-2 px-2 text-[15px] font-semibold transition active:scale-95",
+                              on ? "border-ink bg-ink text-white" : "border-line bg-surface hover:border-ink/15",
+                            )}
+                          >
+                            <span className="truncate">{n}</span>
+                            {done && <Check className={cx("size-3.5 shrink-0", on ? "text-white/80" : "text-accent")} strokeWidth={3} aria-label="응답함" />}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setTyping(true);
+                        chooseName("");
+                      }}
+                      className="mt-4 text-[14px] font-semibold text-ink-2 underline underline-offset-4"
+                    >
+                      명단에 이름이 없어요
+                    </button>
+                  </>
+                ) : (
+                  <div className="relative">
+                    <UserRound className="pointer-events-none absolute left-4 top-1/2 size-5 -translate-y-1/2 text-ink-3" />
+                    <input
+                      autoFocus={!savedName}
+                      value={name}
+                      maxLength={20}
+                      onChange={(e) => chooseName(e.target.value)}
+                      onKeyDown={(e) => e.key === "Enter" && !e.nativeEvent.isComposing && name.trim() && next()}
+                      placeholder="예) 김민준"
+                      autoComplete="name"
+                      enterKeyHint="next"
+                      className={cx(inputCls, "pl-12 text-[17px] font-medium")}
+                    />
+                  </div>
+                )}
                 {prev && (
                   <p className="mt-3 flex items-center gap-1.5 rounded-xl bg-accent-soft px-3 py-2.5 text-[13px] font-medium text-accent">
-                    <Check className="size-4" strokeWidth={3} />
+                    <Check className="size-4 shrink-0" strokeWidth={3} />
                     이전 응답을 불러왔어요. 수정 후 다시 저장할 수 있어요.
                   </p>
                 )}
               </>
             ) : (
-              <QuestionView q={step.q} answer={answers[step.q.id]} onPick={pick} onText={(v) => setAnswers({ ...answers, [step.q.id]: v })} index={idx} total={qCount} />
+              <>
+                {context.length > 0 && step.q.kind !== "attendance" && (
+                  <div className="mb-4 flex flex-wrap gap-1.5">
+                    {context.map((c) => (
+                      <span key={c} className="rounded-full bg-accent-soft px-3 py-1 text-[12.5px] font-semibold text-accent">
+                        {c}
+                      </span>
+                    ))}
+                  </div>
+                )}
+                <QuestionView q={step.q} answer={answers[step.q.id]} onPick={pick} onText={(v) => setAnswers({ ...answers, [step.q.id]: v })} index={idx} total={qCount} />
+              </>
             )}
           </motion.div>
         </AnimatePresence>

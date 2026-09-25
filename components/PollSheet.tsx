@@ -5,7 +5,7 @@ import { motion } from "motion/react";
 import { Loader2 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiError, api, keys, local, session, track, vibrate } from "@/lib/client";
-import { nameKey } from "@/lib/poll";
+import { nameKey, pendingQuestions } from "@/lib/poll";
 import type { Answer, PollDetail, PollSummary } from "@/lib/types";
 import { PinPad } from "./PinPad";
 import { Results } from "./Results";
@@ -37,7 +37,11 @@ export function PollSheet({
     const name = local.get(keys.name);
     const mine = name ? p.responses.find((r) => nameKey(r.name) === nameKey(name)) : undefined;
     setMyName(mine?.name ?? name);
-    setPhase(p.status === "open" && !mine ? "vote" : "results");
+    const needs = !mine || pendingQuestions(p, mine.answers).length > 0;
+    if (mine && !needs) local.set(`done:${p.id}`, String(p.round));
+    // 만든 사람(관리자)은 관리/결과 화면부터: 참여는 하단 버튼으로
+    const isAdmin = !!local.get(keys.admin(p.id));
+    setPhase(p.status === "open" && needs && !isAdmin ? "vote" : "results");
   }, []);
 
   const accept = useCallback(
@@ -136,7 +140,7 @@ export function PollSheet({
             accept(p);
             setMyName(name);
             setMyAnswers(answers);
-            local.set(`done:${p.id}`, "1");
+            local.set(`done:${p.id}`, String(p.round));
             track("vote-complete");
             setPhase("done");
           }}

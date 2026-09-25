@@ -31,6 +31,7 @@ export async function POST(req: Request) {
     id,
     createdAt: Date.now(),
     closed: false,
+    round: 1,
     pinSalt,
     pinHash: await hashPin(pin, pinSalt),
     adminHash: await hashAdmin(adminToken),

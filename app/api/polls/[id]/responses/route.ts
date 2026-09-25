@@ -15,10 +15,17 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   const body = (await readJson(req)) as { name?: unknown; answers?: unknown } | null;
   const name = typeof body?.name === "string" ? body.name.trim().replace(/\s+/g, " ").slice(0, LIMITS.name) : "";
   if (!name) return fail("이름을 입력해 주세요.");
-  const parsed = parseAnswers(poll.questions, body?.answers);
+  const parsed = parseAnswers(poll, body?.answers);
   if (!parsed.ok) return fail(parsed.error);
 
-  await store.saveResponse(id, nameKey(name), { name, answers: parsed.answers, updatedAt: Date.now() });
+  // 확정된 질문(예: 1차 식당 투표)의 기존 응답은 그대로 보존
+  const key = nameKey(name);
+  const prev = (await store.getResponses(id)).find((r) => nameKey(r.name) === key);
+  const answers = { ...parsed.answers };
+  for (const qid of Object.keys(poll.decisions ?? {})) {
+    if (prev?.answers[qid] !== undefined) answers[qid] = prev.answers[qid];
+  }
+  await store.saveResponse(id, key, { name, answers, updatedAt: Date.now() });
   return json({ poll: toDetail(poll, await store.getResponses(id)) });
 }
 

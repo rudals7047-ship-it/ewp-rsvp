@@ -10,7 +10,12 @@
 | 카드 목록 | 진행 중 카드는 크고 어두운 카드로 상단 배치, 마감된 카드는 작은 목록으로 하단 배치 (최신순) |
 | 팀 섹션 | 상단 팀 탭(전체/회계세무부 …) 선택 시 해당 팀 카드만 표시, 선택은 기기에 기억되고 `?team=` 링크로 공유 가능 |
 | PIN 보호 | 카드마다 "PIN 보호" 배지 표시, PIN 입력 후에만 질문·결과 열람/응답 가능. IP당 10분 5회, 투표당 1시간 30회 오답 시 차단. PIN은 서버 비밀키로 HMAC 해시 저장 |
-| 참여 흐름 | PIN → 이름 → 참석 여부 → 식당 → 메뉴 → 요청사항(선택) → 완료 애니메이션(체크 + 컨페티 + 진동) → 실시간 결과 |
+| 참여 흐름 | PIN → 이름(명단이 있으면 탭 선택) → 참석 여부 → 식당 → (메뉴) → 요청사항(선택) → 완료 애니메이션 → 실시간 결과 |
+| 2단계 투표 | ① 참석 + 식당 후보 투표 → 관리자가 식당 **확정** → ② 확정된 식당의 메뉴로 **2차 투표**. 기존 응답자 카드에 '2차 참여' 표시, 들어오면 메뉴 질문으로 바로 이동 |
+| 식당 방식 | 후보 투표 / 이미 정함(장소만 안내) / 묻지 않음 중 선택 |
+| 참여 대상 명단 | 팀별로 기억되는 명단(선택). 참여자는 이름을 탭해서 선택(오타·동명 혼선 방지), 결과에서 **미응답자** 확인 및 '응답 요청' 공유 |
+| 결과 확정 | 선택형 질문은 관리자가 '결과 확정' 가능 (식당·날짜 등). 결과 복사 텍스트에도 반영 |
+| 예약 인원 | 참석 확정 인원과 미정 포함 최대 인원을 바로 표시 |
 | 스마트 분기 | '불참' 선택 시 식당·메뉴 질문 자동 생략. 단일 선택은 탭하면 자동으로 다음 단계 |
 | 응답 수정 | 같은 이름으로 다시 응답하면 기존 응답을 불러와 수정 |
 | 결과 | 참석/미정/불참 인원, 항목별 득표 막대와 투표자 이름, 1위 강조, 10초마다 자동 갱신 |
@@ -25,16 +30,31 @@
 - Next.js 16 (App Router) + React 19 + Tailwind CSS 4 + Motion
 - 저장소: Upstash Redis (Vercel Marketplace 무료 플랜). 미연결 시 메모리 저장소로 동작하는 **데모 모드**(재시작 시 데이터 삭제, 화면에 안내 배너 표시)
 
-## Vercel 배포 방법
+## Vercel 배포 방법 (최초 1회, 약 3분)
 
-1. **프로젝트 가져오기** — vercel.com → Add New → Project → 이 GitHub 저장소 선택 → Deploy (설정 변경 불필요)
-2. **데이터베이스 연결 (필수)** — 프로젝트 → Storage 탭 → Marketplace에서 **Upstash (Redis)** 선택 → 무료 플랜으로 생성 → 이 프로젝트에 Connect
-   - `KV_REST_API_URL`, `KV_REST_API_TOKEN`(또는 `UPSTASH_REDIS_REST_URL/TOKEN`) 환경변수가 자동 추가됩니다.
-3. **(권장) 비밀키 설정** — Settings → Environment Variables에 `AUTH_SECRET` 추가 (임의의 긴 문자열, 예: `openssl rand -base64 32`). 미설정 시 Redis에 자동 생성·보관됩니다.
-4. **트래픽 확인(GoatCounter)** — https://www.goatcounter.com 에서 무료 가입 → 사이트 코드 지정(예: `ewp-rsvp` → `ewp-rsvp.goatcounter.com`) → Vercel 환경변수 `NEXT_PUBLIC_GOATCOUNTER_CODE=ewp-rsvp` 추가
-5. 환경변수 추가 후 **Deployments → Redeploy** 해야 반영됩니다.
+GitHub Pages(저장소 설정 한 번으로 켜는 방식)는 **정적 파일만** 호스팅하므로 투표 저장·PIN 검증 같은 서버 기능을 쓸 수 없습니다. 대신 Vercel은 최초 1회만 연결해 두면, 이후에는 `main` 브랜치에 반영(merge/push)될 때마다 **자동으로 재배포**됩니다.
 
-> 참고: Vercel 자체의 Web Analytics(Hobby 무료 한도 있음)도 대시보드의 Analytics 탭에서 켤 수 있지만, 이 앱은 코드 수정 없이 GoatCounter만 사용하도록 구성되어 있습니다.
+1. **가져오기** — https://vercel.com/new → GitHub 계정 연결 → `ewp-rsvp` 저장소 **Import** → **Deploy** (설정 변경 불필요)
+2. **저장소 연결 (필수)** — 프로젝트 → **Storage** → **Upstash for Redis**(무료) → Create → 이 프로젝트에 Connect
+   - `KV_REST_API_URL`, `KV_REST_API_TOKEN` 환경변수가 자동으로 추가됩니다.
+3. **트래픽 확인 (선택)** — https://www.goatcounter.com 무료 가입 → 코드 지정(예: `ewp-rsvp`) → Vercel **Settings → Environment Variables**에 `NEXT_PUBLIC_GOATCOUNTER_CODE=ewp-rsvp`
+4. **(권장) 비밀키** — 같은 곳에 `AUTH_SECRET` = 임의의 긴 문자열 (미설정 시 Redis에 자동 생성·보관)
+5. 환경변수를 바꾼 뒤에는 **Deployments → Redeploy** 1회
+
+> 이후 운영: 코드 변경이 `main`에 머지되면 Vercel이 자동 배포합니다. PR을 열면 미리보기(Preview) URL도 자동 생성됩니다.
+
+## 공개(Public) 저장소에서의 보안
+
+| 항목 | 저장 위치 | 공개 저장소에 노출되나? |
+| --- | --- | --- |
+| 소스 코드 | GitHub | 노출됨 (보안이 코드 비밀에 의존하지 않도록 설계) |
+| 투표·응답·명단 데이터 | Upstash Redis | **노출 안 됨** (저장소에 데이터 없음) |
+| PIN | Redis에 `HMAC-SHA256(비밀키, salt+PIN)` 해시로만 저장 | **노출 안 됨** (원문 PIN 미저장) |
+| DB 접속 토큰·`AUTH_SECRET` | Vercel 환경변수 | **노출 안 됨** (`.env*`는 `.gitignore`로 커밋 차단) |
+
+- 코드가 공개되어도 PIN 대입은 서버의 시도 제한(IP당 10분 5회, 투표당 1시간 30회)으로 막힙니다. Vercel은 `x-forwarded-for`를 덮어써 IP 위조를 차단합니다.
+- 비밀값은 **절대 코드·커밋에 넣지 말고** Vercel 환경변수에만 넣으세요. GitHub **Settings → Code security → Secret scanning / Push protection**을 켜 두면 실수로 커밋되는 것을 막아줍니다.
+- 코드 자체를 숨기고 싶다면 저장소를 **Private**으로 바꿔도 됩니다. 개인 계정 소유 저장소라면 Vercel 무료(Hobby) 플랜에서도 그대로 배포됩니다.
 
 ## 로컬 실행
 

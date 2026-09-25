@@ -115,7 +115,7 @@ export function Home({ initialPollId }: { initialPollId?: string }) {
   const done = visible.filter((p) => p.status === "closed");
 
   const onUpdated = useCallback((d: PollDetail) => {
-    setPolls((ps) => ps?.map((p) => (p.id === d.id ? { ...p, status: d.status, responseCount: d.responses.length } : p)) ?? ps);
+    setPolls((ps) => ps?.map((p) => (p.id === d.id ? { ...p, status: d.status, responseCount: d.responses.length, round: d.round } : p)) ?? ps);
   }, []);
 
   const startCreate = () => {
@@ -212,7 +212,7 @@ export function Home({ initialPollId }: { initialPollId?: string }) {
                         poll={p}
                         now={now}
                         onOpen={() => openCard(p)}
-                        responded={!!local.get(`done:${p.id}`)}
+                        doneRound={Number(local.get(`done:${p.id}`)) || 0}
                         isAdmin={!!local.get(keys.admin(p.id))}
                         showTeam={team === ALL}
                       />
@@ -230,7 +230,7 @@ export function Home({ initialPollId }: { initialPollId?: string }) {
                       poll={p}
                       now={now}
                       onOpen={() => openCard(p)}
-                      responded={!!local.get(`done:${p.id}`)}
+                      doneRound={Number(local.get(`done:${p.id}`)) || 0}
                       isAdmin={!!local.get(keys.admin(p.id))}
                       showTeam={team === ALL}
                     />
