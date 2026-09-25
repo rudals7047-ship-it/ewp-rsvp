@@ -262,6 +262,9 @@ export function parseCreate(body: unknown): Parsed<CreateInput> {
   if (deadline && eventAt && Date.parse(deadline) > Date.parse(eventAt)) {
     return { ok: false, error: "응답 마감은 모임 시작 전이어야 해요." };
   }
+  // 이미 지난 시각으로 만들면 만들자마자 마감돼 버리므로 거절 (시계 차이 1분 허용)
+  if (deadline && Date.parse(deadline) < Date.now() - 60_000) return { ok: false, error: "응답 마감 시각이 이미 지났어요." };
+  if (eventAt && Date.parse(eventAt) < Date.now() - 60_000) return { ok: false, error: "모임 시각이 이미 지났어요." };
   return {
     ok: true,
     data: {
@@ -381,15 +384,19 @@ export function startMenuRound(poll: Poll, place: string): string | null {
 
 /**
  * 식당 투표 마감 시각이 지나면 1위 식당(동점 없음)으로 확정하고 메뉴 투표를 자동 시작.
- * 동점·무투표·메뉴 정보 없음이면 그대로 두고 관리자가 한 번에 시작하도록 안내. 바뀌었으면 true
+ * 동점·무투표·메뉴 정보 없음이면 그대로 두고 관리자가 한 번에 시작하도록 안내. 저장이 필요하면 true
  */
 export function autoAdvance(poll: Poll, responses: PollResponse[], now = Date.now()) {
-  if (poll.template !== "meal" || !poll.menuLater || poll.closed || (poll.round ?? 1) !== 1) return false;
+  if (poll.template !== "meal" || !poll.menuLater || poll.closed || poll.autoTried || (poll.round ?? 1) !== 1) return false;
   if (!poll.deadline || Date.parse(poll.deadline) > now) return false;
   if (poll.eventAt && Date.parse(poll.eventAt) <= now) return false;
+  if (poll.autoTried) return false;
   const rank = placeRanking(poll, responses);
-  if (!rank || poll.decisions?.[rank.q.id] || rank.top.length !== 1) return false;
-  if (startMenuRound(poll, rank.top[0])) return false;
+  // 동점·무투표·메뉴 없음이면 한 번만 확인하고 관리자에게 맡김 (조회 때마다 다시 계산하지 않게 표시)
+  if (!rank || poll.decisions?.[rank.q.id] || rank.top.length !== 1 || startMenuRound(poll, rank.top[0])) {
+    poll.autoTried = true;
+    return true;
+  }
   poll.autoMenu = true;
   return true;
 }

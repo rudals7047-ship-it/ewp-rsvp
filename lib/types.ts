@@ -50,6 +50,8 @@ export interface Poll {
   menuLater?: boolean;
   /** 식당 투표 마감 시각에 1위 식당으로 메뉴 투표가 자동 시작됨 */
   autoMenu?: boolean;
+  /** 마감 때 자동 전환을 시도했지만 못 함(동점 등): 다시 시도하지 않음 */
+  autoTried?: boolean;
   /** 관리자 PIN (어느 기기에서든 관리자 모드 전환) */
   adminPinSalt?: string;
   adminPinHash?: string;

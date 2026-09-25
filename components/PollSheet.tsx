@@ -37,6 +37,8 @@ export function PollSheet({
   // 응답 탭의 명의: 본인 / 관리자 대리(proxy)
   const [proxy, setProxy] = useState<{ name?: string } | null>(null);
   const [proxyWho, setProxyWho] = useState<string | null>(null);
+  // 본인 응답 중 이름 단계를 지나면 하단 바에 바로 표시 (제출 전이라도)
+  const [draftName, setDraftName] = useState<string | null>(null);
   useEffect(() => setProxyWho(null), [proxy]);
   const [respondKey, setRespondKey] = useState(0);
   const [adminTick, setAdminTick] = useState(0);
@@ -185,7 +187,7 @@ export function PollSheet({
                 key={`${proxy ? `p-${proxy.name ?? ""}` : "self"}-${respondKey}`}
                 poll={poll}
                 proxy={proxy ? { initialName: proxy.name } : undefined}
-                onWho={proxy ? setProxyWho : undefined}
+                onWho={proxy ? setProxyWho : setDraftName}
                 onCancel={() => setTab("status")}
                 onDone={(p, name, answers) => {
                   accept(p);
@@ -229,6 +231,7 @@ export function PollSheet({
             poll={poll}
             tab={tab}
             myName={myName}
+            draftName={tab === "respond" && !myName ? draftName : null}
             proxy={tab === "respond" && proxy ? { name: proxyWho ?? proxy.name } : null}
             adminTick={adminTick}
             onTab={(t) => {
@@ -295,6 +298,7 @@ function Dock({
   poll,
   tab,
   myName,
+  draftName,
   proxy,
   adminTick,
   onTab,
@@ -305,6 +309,7 @@ function Dock({
   poll: PollDetail;
   tab: Tab;
   myName: string | null;
+  draftName?: string | null;
   proxy: { name?: string } | null;
   adminTick: number;
   onTab: (t: Tab) => void;
@@ -337,8 +342,10 @@ function Dock({
       ? `${local.get(keys.admin(poll.id)) ? "관리자" : "사이트 관리자"}${myName ? ` · 내 응답 ${myName}` : ""}`
       : myName
         ? `${myName}님`
-        : "이름 선택 전";
-  const summary = [poll.status === "open" ? poll.stageLabel : "마감", rows.length ? `완료 ${rows.length - pending.length}/${rows.length}` : null, poll.status === "open" && left ? `${left} 남음` : null]
+        : draftName
+          ? `${draftName}님 · 응답 중`
+          : "이름 선택 전";
+  const summary = [poll.status === "open" ? poll.stageLabel : "마감", rows.length ? `완료 ${rows.length - pending.length}/${rows.length}` : null, poll.status === "open" && left ? `마감까지 ${left}` : null]
     .filter(Boolean)
     .join(" · ");
   const tabs: { id: Tab; label: string; icon: typeof PencilLine; badge?: number }[] = [
@@ -367,7 +374,7 @@ function Dock({
           {!isAdmin && poll.hasAdminPin && <MenuItem onClick={() => { setMenu(false); onTab("admin"); }}>👑 관리자 모드로 전환</MenuItem>}
         </div>
       )}
-      <div className="mb-2 flex items-center gap-2">
+      <div className="mb-2 flex items-center gap-2 [@media(max-height:700px)]:mb-1">
         <button
           type="button"
           onClick={() => setMenu((m) => !m)}
@@ -381,7 +388,7 @@ function Dock({
           <span className="truncate">{identity}</span>
           <ChevronDown className={cx("size-3.5 shrink-0 transition", menu && "rotate-180")} />
         </button>
-        <span className="min-w-0 flex-1 truncate text-right text-[12px] font-medium text-ink-3">{summary}</span>
+        <span className="min-w-0 flex-1 truncate text-right text-[12px] font-medium text-ink-3 [@media(max-height:700px)]:hidden">{summary}</span>
       </div>
       <nav aria-label="투표 화면" className="grid gap-1" style={{ gridTemplateColumns: `repeat(${tabs.length}, minmax(0, 1fr))` }}>
         {tabs.map((t) => {
@@ -397,14 +404,14 @@ function Dock({
                 onTab(t.id);
               }}
               className={cx(
-                "relative flex h-12 flex-col items-center justify-center gap-0.5 rounded-xl text-[11.5px] font-semibold transition active:scale-95",
+                "relative flex h-12 flex-col items-center justify-center gap-0.5 rounded-xl text-[11.5px] font-semibold transition active:scale-95 [@media(max-height:700px)]:h-9 [@media(max-height:700px)]:flex-row [@media(max-height:700px)]:gap-1",
                 on ? "bg-ink text-white" : "text-ink-3 hover:bg-ink/[0.04]",
               )}
             >
               <TIcon className="size-[18px]" />
               {t.label}
               {t.badge ? (
-                <span className={cx("absolute right-2 top-1 rounded-full px-1.5 text-[10.5px] font-bold", on ? "bg-white text-ink" : "bg-[#f5c96a] text-ink")}>
+                <span className={cx("absolute right-2 top-1 rounded-full px-1.5 text-[10.5px] font-bold [@media(max-height:700px)]:static", on ? "bg-white text-ink" : "bg-[#f5c96a] text-ink")}>
                   {t.badge}
                 </span>
               ) : null}
@@ -437,6 +444,9 @@ function Done({
   onResults: () => void;
   onClose: () => void;
 }) {
+  const attendQ = poll.questions.find((q) => q.kind === "attendance");
+  const menuLaterPending =
+    poll.template === "meal" && !!poll.menuLater && !poll.questions.some((q) => q.topic === "menu") && (!attendQ || answers[attendQ.id] !== "불참");
   const fired = useRef(false);
   useEffect(() => {
     if (fired.current) return;
@@ -510,6 +520,19 @@ function Done({
               </div>
             ))}
           </motion.dl>
+        )}
+
+        {/* 식당 투표 뒤 메뉴를 따로 받는 투표: 다시 와야 한다는 걸 알려줌 (불참자 제외) */}
+        {menuLaterPending && (
+          <motion.p
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.55 }}
+            className="mt-3 rounded-2xl border border-[#f0d9a8] bg-[#fdf5e3] px-4 py-3 text-[13.5px] leading-relaxed text-[#8a5a12]"
+          >
+            🍽 <b>메뉴는 식당이 정해진 뒤에 골라요.</b>{" "}
+            {poll.deadline ? `${fmtDate(poll.deadline)} 식당 투표가 마감되면` : "만든 사람이 식당을 정하면"} 같은 링크로 다시 들어와 메뉴를 선택해 주세요.
+          </motion.p>
         )}
       </SheetBody>
       <SheetFooter className="grid grid-cols-[1fr_1.4fr] gap-2">

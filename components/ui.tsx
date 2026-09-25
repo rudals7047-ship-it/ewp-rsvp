@@ -159,7 +159,7 @@ export function Field({
   return (
     <Tag
       id={id}
-      className={cx("block scroll-mt-24 rounded-2xl transition", error && "-m-2 bg-danger/[0.04] p-2 ring-2 ring-danger/70")}
+      className={cx("block scroll-mt-24 rounded-2xl transition", error && "-mx-2 -mt-2 bg-danger/[0.04] p-2 ring-2 ring-danger/70")}
       {...(asLabel ? {} : { role: "group", "aria-label": label })}
     >
       <span className="mb-2 flex items-baseline justify-between">
@@ -208,7 +208,8 @@ export function flash(id: string, message?: string) {
   el.classList.add("attention");
   setTimeout(() => el.classList.remove("attention"), 1600);
   const input = el.matches("input,textarea") ? (el as HTMLInputElement) : el.querySelector<HTMLInputElement>("input,textarea");
-  input?.focus({ preventScroll: true });
+  // 검색 드롭다운(combobox)은 포커스하면 목록이 열려 안내를 가리므로 강조만
+  if (input && input.getAttribute("role") !== "combobox") input.focus({ preventScroll: true });
 }
 
 /* ---------- Toast ---------- */

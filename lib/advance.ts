@@ -6,7 +6,7 @@ import { getStore } from "./store";
 export async function freshPoll(id: string) {
   const store = getStore();
   const poll = await store.getPoll(id);
-  if (!poll?.menuLater || (poll.round ?? 1) !== 1) return poll;
+  if (!poll?.menuLater || poll.autoTried || poll.closed || (poll.round ?? 1) !== 1) return poll;
   if (autoAdvance(poll, await store.getResponses(id))) await store.savePoll(poll);
   return poll;
 }

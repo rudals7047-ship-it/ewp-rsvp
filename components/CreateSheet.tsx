@@ -8,6 +8,7 @@ import {
   MapPin,
   ChevronLeft,
   ClipboardCopy,
+  Clock3,
   KeyRound,
   ListChecks,
   MessageSquareText,
@@ -49,7 +50,7 @@ function generalQuestions(): DraftQ[] {
 
 const SLOTS = { lunch: "12:00", dinner: "18:30" } as const;
 
-type Created = { id: string; adminToken: string; title: string; team: string; menuLater: boolean; stageLabel: string };
+type Created = { id: string; adminToken: string; title: string; team: string; menuLater: boolean; stageLabel: string; deadline?: string };
 
 
 /** "YYYY-MM-DD" 날짜 이동 */
@@ -248,6 +249,7 @@ export function CreateSheet({
         title: body.title,
         team: body.team,
         menuLater: isMeal && placeMode === "vote" && menuLater,
+        deadline: deadlineIso,
         stageLabel: isMeal && placeMode === "vote" && candidates.length ? "식당 투표 중" : isMeal && askMenu && menus.length ? "메뉴 선택 중" : isMeal ? "참석 확인 중" : "투표 중",
       });
       track("poll-created");
@@ -468,14 +470,14 @@ export function CreateSheet({
                             ))}
                           </div>
                         )}
-                        <div className="grid grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)] gap-2">
+                        <div className="grid grid-cols-2 gap-2">
                           <input
                             type="date"
                             aria-label="마감 날짜"
                             value={deadline.slice(0, 10)}
                             min={kstToday()}
                             onChange={(e) => e.target.value && setDeadline(`${e.target.value}T${deadline.slice(11, 16) || "17:00"}`)}
-                            className={cx(inputCls, "min-w-0 appearance-none px-3")}
+                            className={cx(inputCls, "min-w-0 appearance-none px-2.5 text-[15px]")}
                           />
                           <input
                             type="time"
@@ -483,7 +485,7 @@ export function CreateSheet({
                             value={deadline.slice(11, 16)}
                             step={600}
                             onChange={(e) => e.target.value && setDeadline(`${deadline.slice(0, 10) || kstToday()}T${e.target.value}`)}
-                            className={cx(inputCls, "min-w-0 appearance-none px-3")}
+                            className={cx(inputCls, "min-w-0 appearance-none px-2.5 text-[15px]")}
                           />
                         </div>
                         {isMeal && (
@@ -673,7 +675,13 @@ export function CreateSheet({
                       { t: "참석 여부", s: "참석 · 미정 · 불참" },
                       ...(placeMode === "vote" && candidates.length ? [{ t: `식당 투표 · ${candidates.length}곳`, s: "주소·대표메뉴와 함께 표시" }] : []),
                       ...(placeMode !== "vote" && askMenu && menus.length ? [{ t: `메뉴 선택 · ${menus.length}개`, s: menuMulti ? "복수 선택" : "하나만 선택" }] : []),
-                      ...(placeMode === "vote" && menuLater ? [{ t: "식당 확정 후 → 2차 메뉴 투표", s: "관리자가 확정하면 열려요", later: true }] : []),
+                      ...(placeMode === "vote" && menuLater ? [
+                          {
+                            t: "식당이 정해지면 → 메뉴 투표 (같은 링크)",
+                            s: deadlineMode === "custom" && deadline ? `${fmtLocal(deadline)} 마감 때 1위 식당으로 자동 시작` : "관리자가 현황 탭에서 한 번 눌러 시작",
+                            later: true,
+                          },
+                        ] : []),
                       ...(askNote ? [{ t: "요청사항", s: "선택 응답 · 건너뛰기 가능" }] : []),
                     ]}
                   />
@@ -752,7 +760,10 @@ export function CreateSheet({
                 message={pinMsg}
                 onSubmit={async (v) => {
                   if (v !== pin) {
-                    setPinMsg("PIN이 일치하지 않아요. 다시 입력해 주세요");
+                    // 처음 입력을 잘못했을 수도 있으니 처음부터 다시
+                    setPin("");
+                    setPinMsg("두 번 입력한 PIN이 달라요. 처음부터 다시 정해 주세요");
+                    go("pin", -1);
                     return false;
                   }
                   setPinMsg(null);
@@ -817,7 +828,7 @@ function FlowPreview({ steps }: { steps: { t: string; s: string; auto?: boolean;
                 st.auto ? "bg-accent text-white" : st.later ? "border border-dashed border-ink/30 text-ink-3" : "bg-ink text-white",
               )}
             >
-              {st.auto ? <MapPin className="size-3.5" /> : st.later ? "2" : ++n}
+              {st.auto ? <MapPin className="size-3.5" /> : st.later ? <Clock3 className="size-3.5" /> : ++n}
             </span>
             <span className="min-w-0 pt-0.5">
               <span className={cx("block text-[14px] font-semibold", st.later && "text-ink-3")}>{st.t}</span>
@@ -1055,7 +1066,16 @@ function CreatedView({
 
         {created.menuLater && (
           <div className="mt-5 rounded-2xl bg-accent-soft p-4 text-[13px] leading-relaxed text-[#0b6b51]">
-            <b className="font-semibold">다음 단계</b> — 식당 투표가 모이면 카드를 열고 결과 화면의 <b className="font-semibold">&lsquo;식당 확정&rsquo;</b>을 눌러 메뉴 투표를 시작하세요.
+            <b className="font-semibold">다음 단계</b> —{" "}
+            {created.deadline ? (
+              <>
+                <b className="font-semibold">{fmtDate(created.deadline)}</b>에 식당 투표가 마감되면 1위 식당으로 메뉴 투표가 <b className="font-semibold">자동으로 시작</b>돼요. 동점이거나 일찍 시작하고 싶으면 투표 카드 → 현황 탭에서 한 번 누르면 돼요.
+              </>
+            ) : (
+              <>
+                식당 표가 모이면 투표 카드 → <b className="font-semibold">현황</b> 탭의 &lsquo;메뉴 투표 시작&rsquo;을 누르세요. 링크는 그대로예요.
+              </>
+            )}
           </div>
         )}
 

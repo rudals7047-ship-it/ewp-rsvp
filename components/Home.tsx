@@ -376,8 +376,8 @@ export function Home({ initialPollId }: { initialPollId?: string }) {
         </footer>
       </div>
 
-      {/* 모바일 하단 고정 버튼 */}
-      <div className="bottom-safe pointer-events-none fixed inset-x-0 z-30 flex justify-center px-4 sm:hidden">
+      {/* 모바일 하단 고정 버튼 (투표가 없을 때는 가운데 안내 카드의 버튼만: 중복·하단 링크 가림 방지) */}
+      <div className={cx("bottom-safe pointer-events-none fixed inset-x-0 z-30 flex justify-center px-4 sm:hidden", polls !== null && visible.length === 0 && "hidden")}>
         <motion.button
           whileTap={{ scale: 0.96 }}
           onClick={startCreate}

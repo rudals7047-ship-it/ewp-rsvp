@@ -44,19 +44,19 @@ export function PollCard({
         <span className="pointer-events-none absolute -bottom-28 -left-10 size-56 rounded-full bg-[#6c7cff]/15 blur-3xl" />
 
         <div className="relative flex items-center gap-2">
-          <span className="relative inline-flex items-center gap-1.5 rounded-full bg-accent/20 py-1 pl-2 pr-2.5 text-[12px] font-semibold text-[#6ee7b7]">
+          {/* 진행 중 + 현재 단계를 한 칩으로 (좁은 화면에서 줄바꿈·잘림 방지) */}
+          <span className="relative inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full bg-accent/20 py-1 pl-2 pr-2.5 text-[12px] font-bold text-[#6ee7b7]">
             <span className="live-dot relative size-1.5 rounded-full bg-[#34d399] text-[#34d399]" />
-            진행 중
+            {poll.stageLabel || "진행 중"}
           </span>
-          <span className="shrink-0 rounded-full bg-[#f5c96a]/20 px-2.5 py-1 text-[12px] font-bold text-[#f5c96a]">{poll.stageLabel}</span>
           {showTeam && (
-            <span className="truncate rounded-full bg-white/10 px-2.5 py-1 text-[12px] font-medium text-white/80">
+            <span className="min-w-0 truncate rounded-full bg-white/10 px-2.5 py-1 text-[12px] font-medium text-white/80">
               {poll.team}
             </span>
           )}
-          <span className="ml-auto inline-flex shrink-0 items-center gap-1 rounded-full border border-white/15 px-2 py-1 text-[11px] font-semibold text-white/75">
+          <span className="ml-auto inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full border border-white/15 px-2 py-1 text-[11px] font-semibold text-white/75" title="PIN 보호">
             <Lock className="size-3" strokeWidth={2.6} />
-            PIN 보호
+            PIN
           </span>
         </div>
 
@@ -82,7 +82,7 @@ export function PollCard({
             <span>
               응답 <b className="font-semibold text-white">{poll.responseCount}</b>명
             </span>
-            {left && <span className="truncate text-white/50">· {left} 남음</span>}
+            {left && <span className="truncate text-white/50">· 마감까지 {left}</span>}
           </span>
           <span className="flex shrink-0 items-center gap-2 whitespace-nowrap">
             {isAdmin && <Crown className="size-4 text-[#f5c96a]" aria-label="내가 만든 투표" />}

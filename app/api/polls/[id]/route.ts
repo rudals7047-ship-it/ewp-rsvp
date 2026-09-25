@@ -54,6 +54,7 @@ export async function PATCH(req: Request, { params }: Ctx) {
     poll.closed = true;
   } else if (body?.action === "reopen") {
     poll.closed = false;
+    poll.autoTried = undefined; // 다시 열면 새 마감 때 자동 전환을 다시 시도
     // 마감 시각이 이미 지났다면 24시간 연장해서 다시 열기
     const end = poll.deadline ?? poll.eventAt;
     if (end && Date.parse(end) <= Date.now()) poll.deadline = new Date(Date.now() + 86_400_000).toISOString();
