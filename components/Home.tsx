@@ -11,7 +11,7 @@ import { CreateSheet } from "./CreateSheet";
 import { CardSkeleton, PollCard } from "./PollCard";
 import { PollSheet } from "./PollSheet";
 import { MasterSheet } from "./Master";
-import { PrivacySheet } from "./Privacy";
+import { GuideSheet } from "./Guide";
 import { Button, Toaster, cx, toast, useNow } from "./ui";
 
 const ALL = "__all__";
@@ -26,7 +26,7 @@ export function Home({ initialPollId }: { initialPollId?: string }) {
   const [createKey, setCreateKey] = useState(0);
   const [, force] = useState(0);
   const [showAllDone, setShowAllDone] = useState(false);
-  const [privacyOpen, setPrivacyOpen] = useState(false);
+  const [guideOpen, setGuideOpen] = useState(false);
   const [teamsOpen, setTeamsOpen] = useState(false);
   const [teamQuery, setTeamQuery] = useState("");
   const [masterOn, setMasterOn] = useState<boolean | null>(null); // null: 기능 꺼짐
@@ -361,18 +361,9 @@ export function Home({ initialPollId }: { initialPollId?: string }) {
         )}
 
         <footer className="mt-14 text-center text-[12px] leading-relaxed text-ink-3/80">
-          투표와 응답은 모임 90일 후 자동 삭제돼요 ·{" "}
-          <button type="button" onClick={() => setPrivacyOpen(true)} className="font-semibold text-ink-2 underline underline-offset-2">
-            개인정보 안내
+          <button type="button" onClick={() => setGuideOpen(true)} className="font-semibold text-ink-2 underline underline-offset-2">
+            이용 안내 · 개인정보
           </button>
-          {masterOn !== null && (
-            <>
-              {" · "}
-              <button type="button" onClick={() => setMasterOpen(true)} className="font-semibold text-ink-2 underline underline-offset-2">
-                사이트 관리
-              </button>
-            </>
-          )}
         </footer>
       </div>
 
@@ -387,7 +378,18 @@ export function Home({ initialPollId }: { initialPollId?: string }) {
         </motion.button>
       </div>
 
-      <PrivacySheet open={privacyOpen} onClose={() => setPrivacyOpen(false)} />
+      <GuideSheet
+        open={guideOpen}
+        onClose={() => setGuideOpen(false)}
+        onMaster={
+          masterOn !== null
+            ? () => {
+                setGuideOpen(false);
+                setMasterOpen(true);
+              }
+            : undefined
+        }
+      />
       <MasterSheet
         open={masterOpen}
         active={!!masterOn}
