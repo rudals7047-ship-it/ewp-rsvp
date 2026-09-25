@@ -135,6 +135,8 @@ export function PollSheet({
                 <b className="font-semibold text-ink-2">{summary.title}</b>
                 <br />
                 투표 생성자가 공유한 PIN으로 보호되어 있어요
+                <br />
+                <span className="text-[12.5px]">PIN은 기기에 저장되지 않아요. 창을 닫으면 다시 입력해요.</span>
               </>
             }
             message={pinMsg}
@@ -206,6 +208,11 @@ export function PollSheet({
               setRespondKey((k) => k + 1);
               setTab("respond");
             }}
+            onLock={() => {
+              session.del(keys.access(poll.id));
+              toast("잠갔어요. 다시 볼 때 PIN을 입력해요");
+              onClose();
+            }}
             onRelease={async (name) => {
               try {
                 const { poll: p } = await api.releaseResponse(poll.id, name);
@@ -266,6 +273,7 @@ function Dock({
   onTab,
   onSelf,
   onRelease,
+  onLock,
   onProxy,
 }: {
   poll: PollDetail;
@@ -276,6 +284,7 @@ function Dock({
   onTab: (t: Tab) => void;
   onSelf: () => void;
   onRelease: (name: string) => void;
+  onLock: () => void;
   onProxy: () => void;
 }) {
   const [menu, setMenu] = useState(false);
@@ -329,6 +338,9 @@ function Dock({
             <MenuItem onClick={() => { setMenu(false); onRelease(myName); }}>
               👑 &lsquo;{myName}&rsquo;님 응답은 제가 대신 입력한 거예요 (이 기기 명의 해제)
             </MenuItem>
+          )}
+          {!isAdmin && (
+            <MenuItem onClick={() => { setMenu(false); onLock(); }}>🔒 이 기기에서 잠그기 (다시 볼 때 PIN 입력)</MenuItem>
           )}
           {!isAdmin && poll.hasAdminPin && <MenuItem onClick={() => { setMenu(false); onTab("admin"); }}>👑 관리자 모드로 전환</MenuItem>}
         </div>

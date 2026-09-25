@@ -11,7 +11,8 @@ export async function getPlaces(region?: Region): Promise<Place[]> {
   for (const e of edits) map.set(e.id, { ...map.get(e.id), ...e, uses: map.get(e.id)?.uses ?? 0 });
   return [...map.values()]
     .filter((p) => !region || p.region === region)
-    .map((p) => ({ ...p, uses: p.uses + (uses[p.id] ?? 0) }));
+    // 빠진 칸이 있어도 화면·검색에서 오류 나지 않도록 기본값 보정
+    .map((p) => ({ ...p, category: p.category ?? "", address: p.address ?? "", phone: p.phone ?? "", menus: p.menus ?? [], uses: (p.uses ?? 0) + (uses[p.id] ?? 0) }));
 }
 
 export async function getPlace(id: string) {
