@@ -1,6 +1,6 @@
 import { hashAdminPin, shortId, hashAdmin, hashPin, randomId } from "@/lib/auth";
 import { fail, json, readJson } from "@/lib/http";
-import { parseCreate, toSummary } from "@/lib/poll";
+import { autoAdvance, parseCreate, toSummary } from "@/lib/poll";
 import { overLimit } from "@/lib/ratelimit";
 import { getStore } from "@/lib/store";
 import type { Poll } from "@/lib/types";
@@ -8,6 +8,13 @@ import type { Poll } from "@/lib/types";
 export async function GET() {
   const store = getStore();
   const rows = await store.listPolls(200);
+  // 마감이 지난 식당 투표는 목록에서도 메뉴 투표 단계로 보이게
+  for (const row of rows) {
+    const p = row.poll;
+    if (p.menuLater && (p.round ?? 1) === 1 && p.deadline && Date.parse(p.deadline) <= Date.now()) {
+      if (autoAdvance(p, await store.getResponses(p.id))) await store.savePoll(p);
+    }
+  }
   return json({
     storage: store.kind,
     polls: rows.map(({ poll, responseCount }) => toSummary(poll, responseCount)),

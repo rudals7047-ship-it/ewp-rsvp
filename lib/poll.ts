@@ -1,4 +1,4 @@
-import { type PlaceSnap, type Region, parseSnap, regionOf } from "./places";
+import { type PlaceSnap, type Region, menuLabel, parseSnap, regionOf } from "./places";
 import type { Answer, Poll, PollDetail, PollResponse, PollSummary, Question, QuestionKind, Stage, StageState } from "./types";
 import { ATTEND, ATTEND_OPTIONS } from "./types";
 
@@ -100,6 +100,8 @@ export function toDetail(p: Poll, responses: PollResponse[], requesterHash?: str
     decisions: p.decisions ?? {},
     placeInfo: p.placeInfo ?? {},
     questions: p.questions,
+    menuLater: p.menuLater,
+    autoMenu: p.autoMenu,
     responses: responses
       .map(({ name, answers, updatedAt, ownerHash, proxy }) => ({
         name,
@@ -325,4 +327,64 @@ export function parseAnswers(poll: QLike, raw: unknown): { ok: true; answers: Re
   const visIds = new Set(vis.map((q) => q.id));
   for (const k of Object.keys(answers)) if (!visIds.has(k)) delete answers[k];
   return { ok: true, answers };
+}
+
+/* ---------- 다음 차수 (식당 확정 → 메뉴 투표) ---------- */
+
+type NewQ = Pick<Question, "kind" | "title" | "options" | "required"> & Partial<Pick<Question, "topic" | "optionGroups">>;
+
+/** 다음 차수 질문 추가. 요청사항(자유 입력)은 항상 마지막. 이미 지난 마감은 풀어서 다시 받을 수 있게 */
+export function addRound(poll: Poll, q: NewQ) {
+  const round = (poll.round ?? 1) + 1;
+  const nextId = Math.max(0, ...poll.questions.map((x) => Number(x.id.slice(1)) || 0)) + 1;
+  const hasAttendance = poll.questions.some((x) => x.kind === "attendance");
+  const firstText = poll.questions.findIndex((x) => x.kind === "text");
+  const at = firstText === -1 ? poll.questions.length : firstText;
+  const topic = poll.template === "meal" && !poll.questions.some((x) => x.topic === "menu") ? "menu" : q.topic;
+  poll.questions.splice(at, 0, { ...q, id: `q${nextId}`, round, topic, onlyIfAttending: hasAttendance ? true : undefined });
+  poll.round = round;
+  poll.closed = false;
+  // 식당 투표 마감이 지났으면 메뉴는 모임 시작 전까지 받음
+  if (poll.deadline && Date.parse(poll.deadline) <= Date.now()) poll.deadline = undefined;
+}
+
+/** 식당 투표 득표 순위 (동점이면 top이 여러 개) */
+export function placeRanking(poll: Poll, responses: PollResponse[]) {
+  const q = poll.questions.find((x) => x.topic === "place");
+  if (!q) return null;
+  const count = new Map(q.options.map((o) => [o, 0]));
+  for (const r of responses) {
+    const v = r.answers[q.id];
+    for (const o of Array.isArray(v) ? v : v ? [v] : []) if (count.has(o)) count.set(o, count.get(o)! + 1);
+  }
+  const max = Math.max(0, ...count.values());
+  return { q, count, top: max > 0 ? [...count].filter(([, n]) => n === max).map(([o]) => o) : [] };
+}
+
+/** 식당을 확정하고 그 식당 메뉴로 메뉴 투표 시작. 실패하면 이유 문자열 */
+export function startMenuRound(poll: Poll, place: string): string | null {
+  const q = poll.questions.find((x) => x.topic === "place");
+  if (!q || !q.options.includes(place)) return "식당을 찾을 수 없어요.";
+  if (poll.questions.some((x) => x.topic === "menu")) return "메뉴 투표가 이미 시작됐어요.";
+  const menus = (poll.placeInfo?.[place]?.menus ?? []).map(menuLabel).slice(0, LIMITS.options);
+  if (!menus.length) return "이 식당은 등록된 메뉴가 없어요. 관리 탭에서 메뉴를 직접 입력해 주세요.";
+  if (poll.questions.length >= LIMITS.questions) return "질문은 최대 8개까지예요.";
+  poll.decisions = { ...(poll.decisions ?? {}), [q.id]: place };
+  addRound(poll, { kind: "single", title: "어떤 메뉴로 하시겠어요?", options: menus, required: true, topic: "menu" });
+  return null;
+}
+
+/**
+ * 식당 투표 마감 시각이 지나면 1위 식당(동점 없음)으로 확정하고 메뉴 투표를 자동 시작.
+ * 동점·무투표·메뉴 정보 없음이면 그대로 두고 관리자가 한 번에 시작하도록 안내. 바뀌었으면 true
+ */
+export function autoAdvance(poll: Poll, responses: PollResponse[], now = Date.now()) {
+  if (poll.template !== "meal" || !poll.menuLater || poll.closed || (poll.round ?? 1) !== 1) return false;
+  if (!poll.deadline || Date.parse(poll.deadline) > now) return false;
+  if (poll.eventAt && Date.parse(poll.eventAt) <= now) return false;
+  const rank = placeRanking(poll, responses);
+  if (!rank || poll.decisions?.[rank.q.id] || rank.top.length !== 1) return false;
+  if (startMenuRound(poll, rank.top[0])) return false;
+  poll.autoMenu = true;
+  return true;
 }

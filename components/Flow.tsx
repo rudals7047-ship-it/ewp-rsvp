@@ -16,12 +16,12 @@ export function StageBar({ stages, className }: { stages: Stage[]; className?: s
             aria-current={s.state === "current" ? "step" : undefined}
             className={cx(
               "inline-flex shrink-0 items-center gap-1 rounded-full px-2.5 py-1",
-              s.state === "done" && "bg-accent-soft text-accent",
+              s.state === "done" && "px-1.5 text-ink-3",
               s.state === "current" && "bg-ink text-white",
               s.state === "todo" && "border border-dashed border-ink/20 text-ink-3",
             )}
           >
-            {s.state === "done" && <Check className="size-3" strokeWidth={3.2} />}
+            {s.state === "done" && <Check className="size-3 text-ink-3" strokeWidth={3.2} />}
             {s.state === "current" && <span className="live-dot relative size-1.5 rounded-full bg-[#34d399] text-[#34d399]" />}
             {s.label}
             {s.detail && <span className="max-w-[9rem] truncate font-medium opacity-80">· {s.detail}</span>}
@@ -92,7 +92,7 @@ export function StepNav({
               className={cx(
                 "inline-flex h-7 shrink-0 items-center gap-1 rounded-full px-2.5 text-[12px] font-semibold transition",
                 i === current && "bg-ink text-white",
-                i !== current && s.locked && "bg-accent-soft text-accent",
+                i !== current && s.locked && "px-1.5 text-ink-3",
                 i !== current && !s.locked && done && "bg-ink/[0.06] text-ink-2 hover:bg-ink/[0.1] active:scale-95",
                 i !== current && !s.locked && !done && "text-ink-3",
               )}

@@ -1,6 +1,7 @@
+import { freshPoll } from "@/lib/advance";
 import { requesterHash, verifyAccess, verifyAdmin } from "@/lib/auth";
 import { fail, json, readJson } from "@/lib/http";
-import { LIMITS, parseQuestion, toDetail } from "@/lib/poll";
+import { LIMITS, addRound, parseQuestion, startMenuRound, toDetail } from "@/lib/poll";
 import { getStore } from "@/lib/store";
 
 type Ctx = { params: Promise<{ id: string }> };
@@ -9,7 +10,7 @@ type Ctx = { params: Promise<{ id: string }> };
 export async function GET(req: Request, { params }: Ctx) {
   const { id } = await params;
   const store = getStore();
-  const poll = await store.getPoll(id);
+  const poll = await freshPoll(id);
   if (!poll) return fail("투표를 찾을 수 없어요.", 404);
   const ok =
     (await verifyAccess(poll, req.headers.get("x-poll-token"))) ||
@@ -22,7 +23,7 @@ export async function GET(req: Request, { params }: Ctx) {
 export async function PATCH(req: Request, { params }: Ctx) {
   const { id } = await params;
   const store = getStore();
-  const poll = await store.getPoll(id);
+  const poll = await freshPoll(id);
   if (!poll) return fail("투표를 찾을 수 없어요.", 404);
   if (!(await verifyAdmin(poll, req.headers.get("x-admin-token")))) return fail("권한이 없어요.", 403);
   const body = (await readJson(req)) as { action?: string; questionId?: string; option?: string; question?: unknown } | null;
@@ -44,16 +45,11 @@ export async function PATCH(req: Request, { params }: Ctx) {
     const r = parseQuestion(body.question, false);
     if (!r.ok) return fail(r.error);
     if (!r.data || (r.data.kind !== "single" && r.data.kind !== "multi")) return fail("선택지를 1개 이상 입력해 주세요.");
-    const round = (poll.round ?? 1) + 1;
-    const nextId = Math.max(0, ...poll.questions.map((q) => Number(q.id.slice(1)) || 0)) + 1;
-    const hasAttendance = poll.questions.some((q) => q.kind === "attendance");
-    // 자유 입력(요청사항) 질문은 항상 마지막에 오도록 그 앞에 삽입
-    const firstText = poll.questions.findIndex((q) => q.kind === "text");
-    const at = firstText === -1 ? poll.questions.length : firstText;
-    const topic = poll.template === "meal" && !poll.questions.some((q) => q.topic === "menu") ? "menu" : r.data.topic;
-    poll.questions.splice(at, 0, { ...r.data, id: `q${nextId}`, round, topic, onlyIfAttending: hasAttendance ? true : undefined });
-    poll.round = round;
-    poll.closed = false;
+    addRound(poll, r.data);
+  } else if (body?.action === "startMenu") {
+    // 식당 확정 + 그 식당 메뉴로 메뉴 투표 시작 (한 번에)
+    const err = startMenuRound(poll, typeof body.option === "string" ? body.option : "");
+    if (err) return fail(err);
   } else if (body?.action === "close") {
     poll.closed = true;
   } else if (body?.action === "reopen") {
@@ -72,7 +68,7 @@ export async function PATCH(req: Request, { params }: Ctx) {
 export async function DELETE(req: Request, { params }: Ctx) {
   const { id } = await params;
   const store = getStore();
-  const poll = await store.getPoll(id);
+  const poll = await freshPoll(id);
   if (!poll) return json({ ok: true });
   if (!(await verifyAdmin(poll, req.headers.get("x-admin-token")))) return fail("권한이 없어요.", 403);
   await store.deletePoll(id);

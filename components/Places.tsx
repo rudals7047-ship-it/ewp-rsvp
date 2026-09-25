@@ -3,7 +3,7 @@
 import { AnimatePresence, motion } from "motion/react";
 import { Check, ExternalLink, Loader2, MapPin, Pencil, Phone, Plus, Search, Store, Trash2, Undo2, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ApiError, api } from "@/lib/client";
+import { ApiError, api, openExternal } from "@/lib/client";
 import {
   PLACE_LIMITS,
   parseLabel,
@@ -542,7 +542,11 @@ export function PlaceInfo({ p, region, label, dark }: { p: PlaceSnap; region?: R
           href={naverUrl(p, region)}
           target="_blank"
           rel="noopener noreferrer"
-          onClick={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            openExternal(naverUrl(p, region));
+          }}
           className={cx("inline-flex h-9 items-center gap-1.5 rounded-full px-3.5 text-[13px] font-semibold", dark ? "bg-white/10 text-white" : "bg-ink/[0.05] text-ink-2")}
         >
           <ExternalLink className="size-3.5" /> 네이버 지도

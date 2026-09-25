@@ -28,7 +28,7 @@ import { RosterField } from "./Rosters";
 import { MenuSuggestions, PlacePicker, SaveMenus } from "./Places";
 import { PinPad } from "./PinPad";
 import { Sheet, SheetBody, SheetFooter } from "./Sheet";
-import { Button, Field, flash, IconButton, Segmented, Toggle, cx, inputCls, textareaCls, toast } from "./ui";
+import { Button, Field, flash, IconButton, reveal, Segmented, Toggle, cx, inputCls, textareaCls, toast } from "./ui";
 
 type Step = "type" | "info" | "questions" | "pin" | "pin2" | "admin" | "done";
 type DraftQ = {
@@ -52,6 +52,24 @@ const SLOTS = { lunch: "12:00", dinner: "18:30" } as const;
 type Created = { id: string; adminToken: string; title: string; team: string; menuLater: boolean; stageLabel: string };
 
 
+/** "YYYY-MM-DD" 날짜 이동 */
+function shiftDay(d: string, n: number) {
+  const t = new Date(`${d}T00:00:00Z`);
+  t.setUTCDate(t.getUTCDate() + n);
+  return t.toISOString().slice(0, 10);
+}
+
+/** 시각(ms) → KST "YYYY-MM-DDTHH:MM" */
+function kstLocal(ms: number) {
+  if (!Number.isFinite(ms)) return "";
+  return new Date(ms + 9 * 3600_000).toISOString().slice(0, 16);
+}
+
+/** KST "YYYY-MM-DDTHH:MM" → "9/26 17:00" */
+function fmtLocal(v: string) {
+  return `${Number(v.slice(5, 7))}/${Number(v.slice(8, 10))} ${v.slice(11, 16)}`;
+}
+
 export function CreateSheet({
   open,
   onClose,
@@ -73,7 +91,8 @@ export function CreateSheet({
   const [team, setTeam] = useState(defaultTeam ?? "");
   const [addingTeam, setAddingTeam] = useState(!teams.length);
   const [title, setTitle] = useState("");
-  const [date, setDate] = useState(kstToday());
+  // 오후 6시가 지났으면 기본 날짜를 내일로
+  const [date, setDate] = useState(() => (new Date(Date.now() + 9 * 3600_000).toISOString().slice(11, 16) >= "18:00" ? kstToday(1) : kstToday()));
   // 오전에는 점심, 그 이후에는 저녁을 기본 선택
   const [slot, setSlot] = useState<"lunch" | "dinner" | "custom">(() =>
     Number(new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Seoul", hour: "numeric", hourCycle: "h23" }).format(new Date())) < 11
@@ -117,6 +136,23 @@ export function CreateSheet({
   const autoTitle = isMeal && date ? `${fmtDate(kstToIso(date, "12:00")!, false)} ${slot === "lunch" ? "점심" : slot === "dinner" ? "저녁" : ""} 식사`.replace(/\s+/g, " ") : "";
   const finalTitle = title.trim() || autoTitle;
   const deadlineIso = deadlineMode === "custom" && deadline ? new Date(`${deadline}:00+09:00`).toISOString() : undefined;
+  // 마감 빠른 선택 (KST "YYYY-MM-DDTHH:MM"). 이미 지났거나 모임 뒤인 시각은 제외
+  const deadlinePresets: [string, string][] = (
+    isMeal && date
+      ? [
+          ["전날 17시", `${shiftDay(date, -1)}T17:00`],
+          ["당일 10시", `${date}T10:00`],
+          ["1시간 전", kstLocal(Date.parse(eventAt ?? "") - 3600_000)],
+        ]
+      : [
+          ["오늘 18시", `${kstToday()}T18:00`],
+          ["내일 18시", `${kstToday(1)}T18:00`],
+          ["3일 뒤 18시", `${kstToday(3)}T18:00`],
+        ]
+  ).filter(([, v]) => {
+    const t = Date.parse(`${v}:00+09:00`);
+    return !!v && t > Date.now() && (!eventAt || t < Date.parse(eventAt));
+  }) as [string, string][];
 
   const candidates = Array.from(new Set(candidatePlaces.map((p) => p.name)));
   const place = fixedPlace[0]?.name ?? "";
@@ -376,19 +412,53 @@ export function CreateSheet({
                   <Field label="응답 마감" id="f-deadline" error={ferr("deadline")}>
                     <Segmented
                       value={deadlineMode}
-                      onChange={setDeadlineMode}
+                      onChange={(m) => {
+                        setDeadlineMode(m);
+                        if (m === "custom") {
+                          if (!deadline) setDeadline(deadlinePresets[0]?.[1] ?? "");
+                          setTimeout(() => reveal(document.getElementById("f-deadline")), 80);
+                        }
+                      }}
                       options={[
                         { value: "auto", label: isMeal ? "모임 시작 시" : "직접 마감할 때까지" },
-                        { value: "custom", label: "시각 지정" },
+                        { value: "custom", label: "시각 지정", sub: deadlineMode === "custom" && deadline ? fmtLocal(deadline) : undefined },
                       ]}
                     />
                     {deadlineMode === "custom" && (
-                      <input
-                        type="datetime-local"
-                        value={deadline}
-                        onChange={(e) => setDeadline(e.target.value)}
-                        className={cx(inputCls, "mt-2 appearance-none")}
-                      />
+                      <div className="mt-2.5 rounded-2xl bg-ink/[0.035] p-3">
+                        {deadlinePresets.length > 0 && (
+                          <div className="mb-2.5 flex flex-wrap gap-2">
+                            {deadlinePresets.map(([l, v]) => (
+                              <Chip key={l} on={deadline === v} onClick={() => setDeadline(v)}>
+                                {l}
+                              </Chip>
+                            ))}
+                          </div>
+                        )}
+                        <div className="grid grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)] gap-2">
+                          <input
+                            type="date"
+                            aria-label="마감 날짜"
+                            value={deadline.slice(0, 10)}
+                            min={kstToday()}
+                            onChange={(e) => e.target.value && setDeadline(`${e.target.value}T${deadline.slice(11, 16) || "17:00"}`)}
+                            className={cx(inputCls, "min-w-0 appearance-none px-3")}
+                          />
+                          <input
+                            type="time"
+                            aria-label="마감 시간"
+                            value={deadline.slice(11, 16)}
+                            step={600}
+                            onChange={(e) => e.target.value && setDeadline(`${deadline.slice(0, 10) || kstToday()}T${e.target.value}`)}
+                            className={cx(inputCls, "min-w-0 appearance-none px-3")}
+                          />
+                        </div>
+                        {isMeal && (
+                          <p className="mt-2.5 text-[12.5px] leading-relaxed text-ink-2">
+                            식당을 투표로 정하면 이 시각에 <b>1위 식당으로 확정되고 메뉴 투표가 자동으로 시작</b>돼요.
+                          </p>
+                        )}
+                      </div>
                     )}
                   </Field>
 
@@ -469,9 +539,38 @@ export function CreateSheet({
                   <Field label="메뉴" id="f-menu" error={tried.questions && qField === "menu" ? qError : null}>
                     {placeMode === "vote" ? (
                       <div className="rounded-2xl bg-accent-soft px-4 py-3.5 text-[13.5px] leading-relaxed text-[#0b6b51]">
-                        <b className="font-semibold">① 참석 + 식당 투표</b> → 결과를 보고 식당 확정 → <b className="font-semibold">② 그 식당 메뉴로 2차 투표</b>
+                        <b className="font-semibold">① 참석 + 식당 투표</b> → 마감되면 1위 식당 확정 → <b className="font-semibold">② 그 식당 메뉴로 메뉴 투표</b> (같은 링크)
                         <br />
                         메뉴는 확정된 식당의 메뉴가 자동으로 채워져요. 지금은 입력할 필요가 없어요.
+                        <div className="mt-2.5 border-t border-[#0b6b51]/15 pt-2.5">
+                          {deadlineMode === "custom" && deadline ? (
+                            <p>
+                              ⏰ <b className="font-semibold">{fmtLocal(deadline)}</b> 식당 투표 마감 → 메뉴 투표 <b className="font-semibold">자동 시작</b>
+                            </p>
+                          ) : (
+                            <p>식당 투표 마감을 고르면 그 시각에 메뉴 투표가 자동으로 시작돼요. 안 고르면 관리자가 한 번 눌러 시작해요.</p>
+                          )}
+                          {deadlinePresets.length > 0 && (
+                            <div className="mt-2 flex flex-wrap gap-1.5">
+                              {deadlinePresets.map(([l, v]) => (
+                                <button
+                                  key={l}
+                                  type="button"
+                                  onClick={() => {
+                                    setDeadlineMode("custom");
+                                    setDeadline(v);
+                                  }}
+                                  className={cx(
+                                    "rounded-full px-3 py-1.5 text-[12.5px] font-semibold transition active:scale-95",
+                                    deadlineMode === "custom" && deadline === v ? "bg-[#0b6b51] text-white" : "bg-white/70 text-[#0b6b51]",
+                                  )}
+                                >
+                                  {l}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
                       </div>
                     ) : (
                       <>
@@ -638,7 +737,7 @@ export function CreateSheet({
                     <>
                       나만 아는 4자리 · <b className="font-semibold text-ink-2">참여 PIN과 다르게</b>
                       <br />
-                      다른 폰·카톡 브라우저에서도 이 PIN으로 마감·대리 입력을 할 수 있어요
+                      다른 폰·카톡 브라우저에서도 이 PIN으로 마감·대신 입력을 할 수 있어요
                     </>
                   )
                 }

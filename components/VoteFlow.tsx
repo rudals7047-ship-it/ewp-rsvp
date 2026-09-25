@@ -3,7 +3,7 @@
 import { AnimatePresence, motion } from "motion/react";
 import { Check, ChevronLeft, CircleHelp, Lock, UserRound, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ApiError, api, keys, local, vibrate } from "@/lib/client";
+import { ApiError, api, keys, local, openExternal, vibrate } from "@/lib/client";
 import { menuLabel, naverUrl } from "@/lib/places";
 import { allowedOptions, nameKey, pendingQuestions, visibleQuestions } from "@/lib/poll";
 import type { Answer, PollDetail, Question } from "@/lib/types";
@@ -171,6 +171,8 @@ export function VoteFlow({
   const textVal = current?.kind === "text" ? ((answers[current.id] as string | undefined) ?? "") : "";
   const prev = step.key === "name" && name.trim() ? existing(name) : undefined;
   const lockedName = !proxy && !!prev?.locked;
+  // 한 기기 = 한 사람: 이 기기로 이미 응답했다면 그 이름으로 고정
+  const myOwn = proxy ? undefined : poll.responses.find((r) => r.own);
 
   return (
     <>
@@ -196,6 +198,19 @@ export function VoteFlow({
           >
             {step.key === "name" ? (
               <>
+                {myOwn ? (
+                  <>
+                    <StepHead eyebrow={poll.title} title={`${myOwn.name}님, 응답을 이어서 할게요`} sub="이전 응답이 채워져 있어요. 바꿀 부분만 수정하세요." />
+                    <div className="flex items-center gap-2 rounded-2xl bg-accent-soft px-4 py-3.5 text-[15px] font-semibold text-accent">
+                      <UserRound className="size-5 shrink-0" /> {myOwn.name}
+                      <Lock className="ml-auto size-4 shrink-0 opacity-70" strokeWidth={2.6} aria-label="이름 고정" />
+                    </div>
+                    <p className="mt-3 text-[13px] leading-relaxed text-ink-3">
+                      한 기기에서는 한 사람만 응답할 수 있어요. 다른 사람 응답은 관리자가 &lsquo;대신 입력&rsquo;으로 넣을 수 있고, 이름을 잘못 골랐다면 관리자에게 삭제를 요청하세요.
+                    </p>
+                  </>
+                ) : (
+                  <>
                 <StepHead
                   eyebrow={poll.title}
                   title={proxy ? "누구의 응답을 입력할까요?" : poll.roster?.length && !typing ? "본인 이름을 선택하세요" : "이름을 알려주세요"}
@@ -305,6 +320,8 @@ export function VoteFlow({
                       )}
                     </div>
                   ))}
+                  </>
+                )}
               </>
             ) : (
               <>
@@ -378,12 +395,12 @@ function PlaceLine({ p, on }: { p: PollDetail["placeInfo"][string]; on: boolean 
         tabIndex={0}
         onClick={(e) => {
           e.stopPropagation();
-          window.open(naverUrl(p), "_blank", "noopener");
+          openExternal(naverUrl(p));
         }}
         onKeyDown={(e) => {
           if (e.key === "Enter") {
             e.stopPropagation();
-            window.open(naverUrl(p), "_blank", "noopener");
+            openExternal(naverUrl(p));
           }
         }}
         className={cx("shrink-0 cursor-pointer underline underline-offset-2", on ? "text-white/80" : "text-ink-2")}

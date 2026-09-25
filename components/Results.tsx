@@ -35,6 +35,7 @@ import {
   progressTable,
   relUntil,
   session,
+  openExternal,
   pollUrl,
   shareText,
   shareLink,
@@ -102,6 +103,17 @@ export function Results({
     }
   }
 
+  // 식당 확정 + 메뉴 투표 시작 (한 번에)
+  async function startMenu(place: string) {
+    const ok = await admin({ action: "startMenu", option: place }, `'${place}'(으)로 확정하고 메뉴 투표를 시작했어요`);
+    if (ok) onGoto("status");
+  }
+  // 메뉴 정보가 없는 식당: 확정만 하고 관리 탭에서 메뉴 입력
+  async function decideOnly(qid: string, place: string) {
+    const ok = await admin({ action: "decide", questionId: qid, option: place }, `'${place}'(으)로 확정했어요. 메뉴를 입력해 주세요`);
+    if (ok) onGoto("admin");
+  }
+
   async function remove() {
     setBusy("delete");
     try {
@@ -141,6 +153,8 @@ export function Results({
             .map((q) => (
               <Decided key={q.id} icon={BadgeCheck} label={`${q.title} · 확정`} value={poll.decisions[q.id]} />
             ))}
+
+          {isAdmin && <MenuStage poll={poll} busy={busy !== null} onStart={startMenu} onDecideOnly={decideOnly} />}
 
           {menuPending && (
             <button
@@ -235,6 +249,7 @@ export function Results({
       {view === "admin" &&
         (isAdmin ? (
           <div className="space-y-4">
+            <MenuStage poll={poll} busy={busy !== null} onStart={startMenu} onDecideOnly={decideOnly} />
             <Button variant="secondary" size="md" className="w-full" onClick={() => onProxy()}>
               <PencilLine className="size-4" /> 다른 사람 응답 대신 입력·수정
             </Button>
@@ -319,7 +334,17 @@ function PlaceRow({ p, region, fixed }: { p: PollDetail["placeInfo"][string]; re
           <Phone className="size-4" />
         </a>
       )}
-      <a href={naverUrl(p, region)} target="_blank" rel="noopener noreferrer" aria-label="네이버 지도" className="flex size-9 items-center justify-center rounded-full bg-white/10">
+      <a
+        href={naverUrl(p, region)}
+        target="_blank"
+        rel="noopener noreferrer"
+        onClick={(e) => {
+          e.preventDefault();
+          openExternal(naverUrl(p, region));
+        }}
+        aria-label="네이버 지도"
+        className="flex size-9 items-center justify-center rounded-full bg-white/10"
+      >
         <ExternalLink className="size-4" />
       </a>
     </div>
@@ -485,7 +510,7 @@ function ProgressTable({ poll, isAdmin, onProxy }: { poll: PollDetail; isAdmin: 
             >
               <span role="cell" className="min-w-0 truncate font-semibold text-ink">
                 {r.name}
-                {r.proxy && <span className="ml-1 text-[10.5px] font-medium text-ink-3">대리</span>}
+                {r.proxy && <span className="ml-1 text-[10.5px] font-medium text-ink-3">관리자 입력</span>}
                 {r.offRoster && <span className="ml-1 text-[10.5px] font-medium text-[#9a6412]">명단 외</span>}
               </span>
               {r.cells.map((c, i) => (
@@ -576,7 +601,7 @@ function Attendance({ poll, q }: { poll: PollDetail; q: Question }) {
           x.names.map((n) => (
             <span key={x.option + n} className={cx("rounded-full px-2.5 py-1 text-[12.5px] font-medium", ATT_META[x.option]?.chip)}>
               {n}
-              {proxied.has(n) && <span className="ml-1 opacity-60">(대리)</span>}
+              {proxied.has(n) && <span className="ml-1 opacity-60">(관리자 입력)</span>}
             </span>
           )),
         )}
@@ -624,12 +649,17 @@ function Bars({
           const pct = voters ? Math.round((x.count / voters) * 100) : 0;
           const selectable = picking;
           return (
-            <button
-              type="button"
+            <div
               key={x.option}
-              disabled={!selectable}
-              onClick={() => setChoice(x.option)}
-              aria-pressed={selectable ? choice === x.option : undefined}
+              {...(selectable
+                ? {
+                    role: "button",
+                    tabIndex: 0,
+                    "aria-pressed": choice === x.option,
+                    onClick: () => setChoice(x.option),
+                    onKeyDown: (e: React.KeyboardEvent) => (e.key === "Enter" || e.key === " ") && setChoice(x.option),
+                  }
+                : {})}
               className={cx(
                 "relative block w-full overflow-hidden rounded-2xl border text-left transition",
                 selectable && choice === x.option ? "border-accent ring-4 ring-accent/15" : strong ? "border-ink/80" : "border-line",
@@ -671,7 +701,8 @@ function Bars({
                   {x.names.join(", ")}
                 </p>
               )}
-            </button>
+              {!isMenu && poll.placeInfo[x.option] && <PlaceLinks p={poll.placeInfo[x.option]} region={poll.region} dark={strong} />}
+            </div>
           );
         })}
       </div>
@@ -851,5 +882,119 @@ function Texts({ poll, q }: { poll: PollDetail; q: Question }) {
         ))}
       </ul>
     </section>
+  );
+}
+
+/** 관리자: 식당 투표 → 메뉴 투표 전환 카드 / 시작 후 안내 보내기 */
+function MenuStage({
+  poll,
+  busy,
+  onStart,
+  onDecideOnly,
+}: {
+  poll: PollDetail;
+  busy: boolean;
+  onStart: (place: string) => void;
+  onDecideOnly: (qid: string, place: string) => void;
+}) {
+  if (poll.template !== "meal") return null;
+  const placeQ = poll.questions.find((q) => q.topic === "place");
+  const menuQ = poll.questions.find((q) => q.topic === "menu");
+
+  // 메뉴 투표가 막 시작됨 (아직 메뉴 응답 없음) → 같은 링크로 안내
+  if (menuQ) {
+    if (poll.status !== "open" || poll.responses.some((r) => r.answers[menuQ.id] !== undefined)) return null;
+    const place = placeQ ? poll.decisions[placeQ.id] : poll.place;
+    return (
+      <div className="mb-3 rounded-2xl bg-ink p-4 text-white">
+        <p className="text-[13.5px] leading-relaxed">
+          <b>🍽 메뉴 투표가 시작됐어요</b>
+          {poll.autoMenu ? " · 마감 시각에 1위 식당으로 자동 시작" : ""}
+          <br />
+          <span className="text-white/75">링크는 그대로예요. 단톡방에 한 번만 알려주세요.</span>
+        </p>
+        <button
+          type="button"
+          onClick={async () => {
+            const r = await shareLink(
+              pollUrl(poll.id),
+              poll.title,
+              `🍽 식당이 '${place ?? ""}'(으)로 정해졌어요! 이제 메뉴를 골라주세요 (같은 링크)\n${pollUrl(poll.id)}\n🔒 참여 PIN은 담당자에게 확인하세요`,
+            );
+            if (r === "copied") toast("안내 문구를 복사했어요");
+            track("menu-announce");
+          }}
+          className="mt-3 inline-flex h-10 w-full items-center justify-center gap-1.5 rounded-xl bg-white text-[14px] font-bold text-ink active:scale-[0.98]"
+        >
+          <Share2 className="size-4" /> 메뉴 투표 안내 보내기
+        </button>
+      </div>
+    );
+  }
+
+  if (!placeQ || poll.decisions[placeQ.id]) return null;
+  const rank = tally(poll, placeQ);
+  const max = rank[0]?.count ?? 0;
+  const top = max > 0 ? rank.filter((t) => t.count === max) : [];
+  const hasMenus = (o: string) => !!poll.placeInfo[o]?.menus.length;
+  const closed = poll.status !== "open";
+  const label = (o: string) => (hasMenus(o) ? `'${o}'(으)로 메뉴 투표 시작` : `'${o}' 확정하고 메뉴 입력`);
+  const act = (o: string) => (hasMenus(o) ? onStart(o) : onDecideOnly(placeQ.id, o));
+
+  return (
+    <div className="mb-3 rounded-2xl border-2 border-ink/80 p-4">
+      <p className="text-[12px] font-bold text-ink-3">다음 단계 · 메뉴 투표</p>
+      <p className="mt-1 text-[14px] font-semibold leading-snug">
+        {top.length === 0
+          ? "아직 식당 표가 없어요."
+          : top.length > 1
+            ? `${top.map((t) => t.option).join(", ")} 동점(${max}표)이에요. 한 곳을 골라 시작하세요.`
+            : `현재 1위 '${top[0].option}' (${max}표)`}
+      </p>
+      {!closed && poll.deadline && top.length > 0 && (
+        <p className="mt-1 text-[12.5px] text-ink-3">
+          {top.length === 1
+            ? `${fmtDate(poll.deadline)} 마감 때 1위 식당으로 메뉴 투표가 자동 시작돼요. 지금 바로 시작해도 돼요.`
+            : `${fmtDate(poll.deadline)} 마감 때도 동점이면 여기서 골라 시작하면 돼요.`}
+        </p>
+      )}
+      {top.length > 0 && (
+        <div className="mt-3 space-y-2">
+          {top.map((t) => (
+            <Button key={t.option} size="md" className="w-full" disabled={busy} onClick={() => act(t.option)}>
+              {label(t.option)}
+            </Button>
+          ))}
+        </div>
+      )}
+      <p className="mt-2 text-[12px] text-ink-3">다른 식당으로 정하려면 결과 탭에서 확정하세요. 식당 투표는 이 순간 마감돼요.</p>
+    </div>
+  );
+}
+
+/** 결과 목록의 식당 전화·지도 바로가기 (선택 동작과 겹치지 않게 클릭 전파 차단) */
+function PlaceLinks({ p, region, dark }: { p: PollDetail["placeInfo"][string]; region: PollDetail["region"]; dark: boolean }) {
+  const cls = cx("inline-flex h-8 items-center gap-1 rounded-full px-3 text-[12.5px] font-semibold", dark ? "bg-white/15 text-white" : "bg-ink/[0.05] text-ink-2");
+  return (
+    <div className="relative flex gap-1.5 px-4 pb-3">
+      {p.phone && (
+        <a href={`tel:${p.phone}`} onClick={(e) => e.stopPropagation()} className={cls}>
+          <Phone className="size-3.5" /> 전화
+        </a>
+      )}
+      <a
+        href={naverUrl(p, region)}
+        target="_blank"
+        rel="noopener noreferrer"
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          openExternal(naverUrl(p, region));
+        }}
+        className={cls}
+      >
+        <ExternalLink className="size-3.5" /> 가게 정보
+      </a>
+    </div>
   );
 }
