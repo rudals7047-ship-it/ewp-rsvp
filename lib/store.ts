@@ -21,6 +21,7 @@ export interface Store {
   /** 카운터 증가 후 현재 값 반환 (윈도우 TTL 초) */
   hit(key: string, ttlSec: number): Promise<number>;
   count(key: string): Promise<number>;
+  counts(keys: string[]): Promise<number[]>;
   reset(key: string): Promise<void>;
   getOrCreateSecret(): Promise<string>;
   /** 저장된 비밀키 조회 (생성하지 않음) */
@@ -131,6 +132,10 @@ function redisStore(redis: Redis): Store {
     },
     async count(key) {
       return Number(await redis.get(key)) || 0;
+    },
+    async counts(keys) {
+      const vals = await redis.mget<unknown[]>(...keys);
+      return vals.map((v) => Number(v) || 0);
     },
     async reset(key) {
       await redis.del(key);
@@ -250,6 +255,9 @@ function memoryStore(): Store {
     },
     async count(key) {
       return live(key)?.n ?? 0;
+    },
+    async counts(keys) {
+      return keys.map((k) => live(k)?.n ?? 0);
     },
     async reset(key) {
       m.counters.delete(key);

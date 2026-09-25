@@ -21,9 +21,10 @@ export async function pinGuard(req: Request, scope: string) {
   const store = getStore();
   const ipKey = `rl:pin:${scope}:${ipTag(req)}`;
   const allKey = `rl:pin:${scope}`;
-  const limit = (await store.count(allKey)) >= ATTACK_THRESHOLD ? PER_IP_UNDER_ATTACK : PER_IP;
+  const [ipCount, allCount] = await store.counts([ipKey, allKey]); // DB 왕복 1회
+  const limit = allCount >= ATTACK_THRESHOLD ? PER_IP_UNDER_ATTACK : PER_IP;
   return {
-    blocked: (await store.count(ipKey)) >= limit,
+    blocked: ipCount >= limit,
     async fail() {
       const n = await store.hit(ipKey, 600);
       await store.hit(allKey, 3600);

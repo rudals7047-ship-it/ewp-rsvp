@@ -10,7 +10,18 @@ const TOKEN_TTL_MS = 1000 * 60 * 60 * 12; // PIN 인증 유지: 12시간
  * AUTH_SECRET을 나중에 추가해도 기존 투표의 PIN/관리 링크가 깨지지 않도록
  * 검증 시에는 저장된 키도 함께 시도한다.
  */
+let secretCache: { at: number; value: Promise<string[]> } | null = null;
+
+/** 요청마다 DB에서 비밀키를 읽지 않도록 5분간 메모리 캐시 (응답 속도 개선) */
 async function secrets(): Promise<string[]> {
+  if (secretCache && Date.now() - secretCache.at < 300_000) return secretCache.value;
+  const value = loadSecrets();
+  secretCache = { at: Date.now(), value };
+  value.catch(() => (secretCache = null));
+  return value;
+}
+
+async function loadSecrets(): Promise<string[]> {
   const store = getStore();
   const env = process.env.AUTH_SECRET;
   if (!env) return [await store.getOrCreateSecret()];
@@ -33,6 +44,15 @@ function safeEqual(a: string, b: string) {
   const ab = Buffer.from(a);
   const bb = Buffer.from(b);
   return ab.length === bb.length && timingSafeEqual(ab, bb);
+}
+
+/** 읽고 받아쓰기 쉬운 짧은 ID (헷갈리는 0/o/1/l/i 제외, 소문자+숫자) */
+export function shortId(len = 7) {
+  const alphabet = "23456789abcdefghjkmnpqrstuvwxyz";
+  const bytes = randomBytes(len);
+  let out = "";
+  for (let i = 0; i < len; i++) out += alphabet[bytes[i] % alphabet.length];
+  return out;
 }
 
 export function randomId(bytes = 6) {
@@ -60,8 +80,31 @@ export async function hashAdmin(token: string) {
   return hmac(`admin:${token}`);
 }
 
+/** 관리자 PIN 해시 */
+export async function hashAdminPin(pin: string, salt: string) {
+  return hmac(`adminpin:${salt}:${pin}`);
+}
+
+export async function verifyAdminPin(poll: Poll, pin: string) {
+  return !!poll.adminPinHash && !!poll.adminPinSalt && /^\d{4}$/.test(pin) && hmacMatches(`adminpin:${poll.adminPinSalt}:${pin}`, poll.adminPinHash);
+}
+
+const ADMIN_SESSION_MS = 1000 * 60 * 60 * 24 * 30;
+
+/** 관리자 PIN으로 로그인한 기기에 발급하는 관리자 세션 토큰 ("s.<만료>.<서명>") */
+export async function issueAdminSession(poll: Poll) {
+  const exp = Date.now() + ADMIN_SESSION_MS;
+  return `s.${exp}.${await hmac(`adminsess:${poll.id}:${poll.adminPinHash}:${exp}`)}`;
+}
+
 export async function verifyAdmin(poll: Poll, token: string | null | undefined) {
   if (!token) return false;
+  if (token.startsWith("s.")) {
+    const [, expStr, sig] = token.split(".");
+    const exp = Number(expStr);
+    if (!poll.adminPinHash || !exp || !sig || exp < Date.now()) return false;
+    return hmacMatches(`adminsess:${poll.id}:${poll.adminPinHash}:${exp}`, sig);
+  }
   return hmacMatches(`admin:${token}`, poll.adminHash);
 }
 

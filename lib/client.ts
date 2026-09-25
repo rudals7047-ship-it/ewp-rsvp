@@ -122,6 +122,8 @@ export const api = {
     request<{ roster: RosterSummary }>("/api/rosters", { method: "POST", body: JSON.stringify(b) }),
   roster: (id: string, b: { pin: string; action: "open" | "update" | "delete"; names?: string[]; title?: string }) =>
     request<{ names?: string[]; title?: string; ok?: true }>(`/api/rosters/${id}`, { method: "POST", body: JSON.stringify(b) }),
+  adminLogin: (id: string, pin: string) =>
+    request<{ adminToken: string; token: string; poll: PollDetail }>(`/api/polls/${id}/admin`, { method: "POST", body: JSON.stringify({ pin }) }, id),
   removeResponse: (id: string, name: string) =>
     request<{ poll: PollDetail }>(`/api/polls/${id}/responses?name=${encodeURIComponent(name)}`, { method: "DELETE" }, id),
   remove: (id: string) => request<{ ok: true }>(`/api/polls/${id}`, { method: "DELETE" }, id),
@@ -258,6 +260,21 @@ export function summaryText(poll: PollDetail) {
     lines.push("");
   }
   return lines.join("\n").trim();
+}
+
+/** 공유용 링크: 짧은 경로 /p/<id> */
+export function pollUrl(id: string) {
+  return `${location.origin}/p/${id}`;
+}
+
+/** 공유 메시지: 무엇을·어느 단계인지·언제까지를 한눈에 */
+export function shareText(p: { team: string; title: string; stageLabel?: string; eventAt?: string; deadline?: string }) {
+  const lines = [`[${p.team}] ${p.title}`];
+  if (p.stageLabel) lines.push(`🗳️ 지금: ${p.stageLabel}`);
+  if (p.eventAt) lines.push(`📅 ${fmtDate(p.eventAt)}`);
+  const end = p.deadline ?? p.eventAt;
+  if (end) lines.push(`⏰ 응답 마감: ${fmtDate(end)}`);
+  return lines.join("\n");
 }
 
 export async function copyText(text: string) {

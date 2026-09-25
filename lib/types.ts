@@ -12,6 +12,10 @@ export interface Question {
   onlyIfAttending?: boolean;
   /** 몇 차 투표에서 추가된 질문인지 (기본 1) */
   round?: number;
+  /** 질문 주제: 식당 투표 / 메뉴 선택 (단계 표시용) */
+  topic?: "place" | "menu";
+  /** 메뉴 선택지 → 소속 식당 (식당·메뉴를 한 번에 받을 때, 고른 식당의 메뉴만 보여주기 위함) */
+  optionGroups?: Record<string, string>;
 }
 
 export type Template = "meal" | "general";
@@ -42,6 +46,19 @@ export interface Poll {
   region?: Region;
   /** 식당 정보 스냅샷: 선택지(식당 이름) 또는 place → 상세 */
   placeInfo?: Record<string, PlaceSnap>;
+  /** 식당 확정 후 메뉴를 받을 예정 (단계 표시용) */
+  menuLater?: boolean;
+  /** 관리자 PIN (어느 기기에서든 관리자 모드 전환) */
+  adminPinSalt?: string;
+  adminPinHash?: string;
+}
+
+export type StageState = "done" | "current" | "todo";
+export interface Stage {
+  label: string;
+  state: StageState;
+  /** 확정된 값 등 상세 (PIN 인증 후에만 채워짐) */
+  detail?: string;
 }
 
 export type Answer = string | string[];
@@ -74,10 +91,15 @@ export interface PollSummary {
   responseCount: number;
   round: number;
   region: Region;
+  /** 현재 단계 한 줄 요약 (예: "메뉴 선택 중") */
+  stageLabel: string;
+  stages: Stage[];
 }
 
 /** PIN 인증 후 볼 수 있는 정보 */
 export interface PollDetail extends PollSummary {
+  /** 관리자 PIN이 설정된 투표인지 */
+  hasAdminPin: boolean;
   note?: string;
   place?: string;
   roster?: string[];

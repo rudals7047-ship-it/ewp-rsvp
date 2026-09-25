@@ -121,6 +121,8 @@ export function PlacePicker({
   }
 
   const showSearch = mode === "multi" || selected.length === 0;
+  // 입력 없이 한 번에 고를 수 있는 자주 가는 곳
+  const quick = (places ?? []).filter((p) => !selectedIds.has(p.id)).sort((a, b) => b.uses - a.uses).slice(0, 6);
 
   return (
     <div ref={box}>
@@ -176,7 +178,12 @@ export function PlacePicker({
                 setQ(e.target.value);
                 setOpen(true);
               }}
-              onFocus={() => setOpen(true)}
+              onFocus={() => {
+                setOpen(true);
+                // 모바일 키보드에 목록이 가리지 않도록 검색칸을 시트 위쪽으로 스크롤
+                setTimeout(() => box.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 250);
+              }}
+              onClick={() => setOpen(true)}
               onKeyDown={(e) => {
                 if (e.key === "Enter" && !e.nativeEvent.isComposing) {
                   e.preventDefault();
@@ -200,6 +207,26 @@ export function PlacePicker({
             )}
           </div>
 
+          {!open && !q && quick.length > 0 && !full && (
+            <div className="mt-2">
+              <p className="mb-1.5 text-[12px] font-semibold text-ink-3">자주 가는 곳 · 탭해서 {mode === "multi" ? "추가" : "선택"}</p>
+              <div className="flex flex-wrap gap-1.5">
+                {quick.map((p) => (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onClick={() => pick(p)}
+                    className="inline-flex h-9 items-center gap-1 rounded-full border border-line bg-surface px-3 text-[13px] font-semibold text-ink-2 transition hover:border-ink/20 active:scale-95"
+                  >
+                    <Plus className="size-3.5 text-ink-3" /> {p.name}
+                  </button>
+                ))}
+                <button type="button" onClick={() => setOpen(true)} className="inline-flex h-9 items-center rounded-full px-3 text-[13px] font-semibold text-ink-3 underline underline-offset-2">
+                  전체 목록
+                </button>
+              </div>
+            </div>
+          )}
           <AnimatePresence>
             {open && (
               <motion.div
@@ -382,14 +409,26 @@ export function PlaceEditor({
 
 /* ---------- 메뉴 선택 (식당 메뉴에서 탭해서 선택지로) ---------- */
 
-export function MenuSuggestions({ menus, selected, onToggle }: { menus: PlaceMenu[]; selected: string[]; onToggle: (label: string) => void }) {
+export function MenuSuggestions({
+  menus,
+  selected,
+  onToggle,
+  title = "식당 메뉴에서 탭해서 추가",
+  labelOf = menuLabel,
+}: {
+  menus: PlaceMenu[];
+  selected: string[];
+  onToggle: (label: string) => void;
+  title?: string;
+  labelOf?: (m: PlaceMenu) => string;
+}) {
   if (!menus.length) return null;
   return (
     <div className="mb-3">
-      <p className="mb-2 text-[12.5px] font-semibold text-ink-3">식당 메뉴에서 탭해서 추가</p>
+      <p className="mb-2 text-[12.5px] font-semibold text-ink-3">{title}</p>
       <div className="flex flex-wrap gap-1.5">
         {menus.map((m) => {
-          const label = menuLabel(m);
+          const label = labelOf(m);
           const on = selected.includes(label);
           return (
             <button
