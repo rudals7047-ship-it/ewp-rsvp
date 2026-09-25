@@ -47,6 +47,15 @@ export async function verifyPin(poll: Poll, pin: string) {
   return hmacMatches(`pin:${poll.pinSalt}:${pin}`, poll.pinHash);
 }
 
+/** 명단 PIN (투표 PIN과 같은 방식, 별도 네임스페이스) */
+export async function hashRosterPin(pin: string, salt: string) {
+  return hmac(`roster:${salt}:${pin}`);
+}
+
+export async function verifyRosterPin(r: { pinSalt: string; pinHash: string }, pin: string) {
+  return /^\d{4}$/.test(pin) && hmacMatches(`roster:${r.pinSalt}:${pin}`, r.pinHash);
+}
+
 export async function hashAdmin(token: string) {
   return hmac(`admin:${token}`);
 }

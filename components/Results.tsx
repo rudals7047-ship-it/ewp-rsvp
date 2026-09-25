@@ -50,12 +50,14 @@ export function Results({
   poll,
   myName,
   onEdit,
+  onProxy,
   onChange,
   onDeleted,
 }: {
   poll: PollDetail;
   myName: string | null;
   onEdit: () => void;
+  onProxy: (name?: string) => void;
   onChange: (p: PollDetail) => void;
   onDeleted: () => void;
 }) {
@@ -168,14 +170,25 @@ export function Results({
           <section className="mb-7">
             <SectionTitle right={`${miss.length}명`}>
               <Hourglass className="mr-1 inline size-4 -translate-y-px text-[#b7791f]" />
-              아직 응답하지 않은 사람
+              아직 응답하지 않은 사람{isAdmin && <span className="ml-1 text-[12px] font-medium text-ink-3">· 탭해서 대신 입력</span>}
             </SectionTitle>
             <div className="flex flex-wrap gap-1.5">
-              {miss.map((n) => (
-                <span key={n} className="rounded-full border border-dashed border-ink/20 px-2.5 py-1 text-[12.5px] font-medium text-ink-2">
-                  {n}
-                </span>
-              ))}
+              {miss.map((n) =>
+                isAdmin ? (
+                  <button
+                    key={n}
+                    type="button"
+                    onClick={() => onProxy(n)}
+                    className="inline-flex items-center gap-1 rounded-full border border-dashed border-ink/20 px-2.5 py-1 text-[12.5px] font-medium text-ink-2 hover:bg-ink/[0.04]"
+                  >
+                    {n} <PencilLine className="size-3" />
+                  </button>
+                ) : (
+                  <span key={n} className="rounded-full border border-dashed border-ink/20 px-2.5 py-1 text-[12.5px] font-medium text-ink-2">
+                    {n}
+                  </span>
+                ),
+              )}
             </div>
           </section>
         )}
@@ -235,8 +248,9 @@ export function Results({
               const r = await shareLink(
                 `${location.origin}/p/${poll.id}`,
                 poll.title,
+                // 개인정보: 공유 메시지에는 미응답자 실명을 넣지 않고 인원만 표기
                 miss?.length
-                  ? `[${poll.team}] ${poll.title}\n아직 응답 전: ${miss.join(", ")}\n🔒 PIN은 담당자에게 확인하세요`
+                  ? `[${poll.team}] ${poll.title}\n아직 ${miss.length}명이 응답 전이에요. 참여 부탁드려요!\n🔒 PIN은 담당자에게 확인하세요`
                   : `[${poll.team}] ${poll.title}\n🔒 PIN은 담당자에게 확인하세요`,
               );
               if (r === "copied") toast("링크를 복사했어요");
@@ -265,6 +279,9 @@ export function Results({
               </div>
             ) : (
               <>
+              <Button variant="secondary" size="md" className="mb-3 w-full" onClick={() => onProxy()}>
+                <PencilLine className="size-4" /> 다른 사람 응답 대신 입력·수정
+              </Button>
               {poll.responses.length > 0 && <ResponseManager poll={poll} onChange={onChange} />}
               <div className="grid grid-cols-2 gap-2">
                 {open ? (
@@ -387,6 +404,7 @@ const ATT_META: Record<string, { icon: typeof Check; cls: string; chip: string }
 
 function Attendance({ poll, q }: { poll: PollDetail; q: Question }) {
   const t = tally(poll, q);
+  const proxied = new Set(poll.responses.filter((r) => r.proxy).map((r) => r.name));
   return (
     <section>
       <SectionTitle right={`총 ${poll.responses.length}명`}>참석 현황</SectionTitle>
@@ -413,6 +431,7 @@ function Attendance({ poll, q }: { poll: PollDetail; q: Question }) {
           x.names.map((n) => (
             <span key={x.option + n} className={cx("rounded-full px-2.5 py-1 text-[12.5px] font-medium", ATT_META[x.option]?.chip)}>
               {n}
+              {proxied.has(n) && <span className="ml-1 opacity-60">(대리)</span>}
             </span>
           )),
         )}

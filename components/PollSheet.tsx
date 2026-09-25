@@ -11,9 +11,9 @@ import { PinPad } from "./PinPad";
 import { Results } from "./Results";
 import { Sheet, SheetBody, SheetFooter } from "./Sheet";
 import { VoteFlow } from "./VoteFlow";
-import { Button } from "./ui";
+import { Button, toast } from "./ui";
 
-type Phase = "loading" | "pin" | "vote" | "done" | "results";
+type Phase = "loading" | "pin" | "vote" | "proxy" | "done" | "results";
 
 export function PollSheet({
   summary,
@@ -31,6 +31,7 @@ export function PollSheet({
   const [pinMsg, setPinMsg] = useState<string | null>(null);
   const [myName, setMyName] = useState<string | null>(null);
   const [myAnswers, setMyAnswers] = useState<Record<string, Answer> | null>(null);
+  const [proxyName, setProxyName] = useState<string | undefined>();
   const id = summary?.id;
 
   const route = useCallback((p: PollDetail) => {
@@ -147,6 +148,20 @@ export function PollSheet({
           }}
         />
       )}
+      {phase === "proxy" && poll && (
+        <VoteFlow
+          key={`proxy-${proxyName ?? ""}`}
+          poll={poll}
+          proxy={{ initialName: proxyName }}
+          onCancel={() => setPhase("results")}
+          onDone={(p, name) => {
+            accept(p);
+            toast(`${name}님의 응답을 대신 저장했어요`);
+            track("vote-proxy");
+            setPhase("results");
+          }}
+        />
+      )}
       {phase === "done" && poll && (
         <Done poll={poll} name={myName ?? ""} answers={myAnswers ?? {}} onResults={() => setPhase("results")} onClose={onClose} />
       )}
@@ -155,6 +170,10 @@ export function PollSheet({
           poll={poll}
           myName={myName}
           onEdit={() => setPhase("vote")}
+          onProxy={(name) => {
+            setProxyName(name);
+            setPhase("proxy");
+          }}
           onChange={accept}
           onDeleted={() => {
             onDeleted(poll.id);

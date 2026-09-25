@@ -1,6 +1,7 @@
 import "server-only";
 import { Redis } from "@upstash/redis";
 import type { Place } from "./places";
+import type { RosterList } from "./types";
 import type { Poll, PollResponse } from "./types";
 
 /**
@@ -29,6 +30,18 @@ export interface Store {
   savePlace(p: Place): Promise<void>;
   placeUses(): Promise<Record<string, number>>;
   addPlaceUses(ids: string[]): Promise<void>;
+  /** 참석자 명단 보관함 (실명은 PIN 인증 후에만 반환) */
+  listRosters(): Promise<RosterList[]>;
+  getRoster(id: string): Promise<RosterList | null>;
+  saveRoster(r: RosterList): Promise<void>;
+  deleteRoster(id: string): Promise<void>;
+}
+
+/** 개인정보 보관 기간: 모임일(없으면 마감·생성일) 이후 90일 뒤 투표·응답 자동 삭제 */
+export const RETENTION_DAYS = 90;
+export function expiresAtSec(p: Pick<Poll, "eventAt" | "deadline" | "createdAt">) {
+  const base = Math.max(p.createdAt, Date.parse(p.eventAt ?? "") || 0, Date.parse(p.deadline ?? "") || 0);
+  return Math.floor(base / 1000) + RETENTION_DAYS * 86400;
 }
 
 const POLL = (id: string) => `poll:${id}`;
@@ -37,6 +50,7 @@ const INDEX = "polls";
 const SECRET = "app:secret";
 const PLACES = "places";
 const PLACE_USES = "place-uses";
+const ROSTERS = "rosters";
 
 function parse<T>(v: unknown): T {
   return (typeof v === "string" ? JSON.parse(v) : v) as T;
@@ -56,8 +70,10 @@ function redisStore(redis: Redis): Store {
       return v ? parse<Poll>(v) : null;
     },
     async savePoll(poll) {
+      const exat = expiresAtSec(poll);
       const p = redis.pipeline();
-      p.set(POLL(poll.id), JSON.stringify(poll));
+      p.set(POLL(poll.id), JSON.stringify(poll), { exat });
+      p.expireat(RESP(poll.id), exat);
       p.zadd(INDEX, { score: poll.createdAt, member: poll.id });
       await p.exec();
     },
@@ -78,11 +94,16 @@ function redisStore(redis: Redis): Store {
       }
       const res = await p.exec<unknown[]>();
       const out: { poll: Poll; responseCount: number }[] = [];
+      const expired: string[] = [];
       for (let i = 0; i < ids.length; i++) {
         const raw = res[i * 2];
-        if (!raw) continue;
+        if (!raw) {
+          expired.push(ids[i]); // 보관 기간이 지나 삭제된 투표는 목록에서도 정리
+          continue;
+        }
         out.push({ poll: parse<Poll>(raw), responseCount: Number(res[i * 2 + 1]) || 0 });
       }
+      if (expired.length) await redis.zrem(INDEX, ...expired).catch(() => {});
       return out;
     },
     async getResponses(id) {
@@ -91,7 +112,11 @@ function redisStore(redis: Redis): Store {
       return Object.values(all).map((v) => parse<PollResponse>(v));
     },
     async saveResponse(id, key, r) {
-      await redis.hset(RESP(id), { [key]: JSON.stringify(r) });
+      const p = redis.pipeline();
+      p.hset(RESP(id), { [key]: JSON.stringify(r) });
+      p.ttl(POLL(id));
+      const [, ttl] = await p.exec<[number, number]>();
+      if (ttl > 0) await redis.expire(RESP(id), ttl); // 응답도 투표와 같은 시점에 삭제
     },
     async deleteResponse(id, key) {
       await redis.hdel(RESP(id), key);
@@ -125,6 +150,20 @@ function redisStore(redis: Redis): Store {
       const all = await redis.hgetall<Record<string, unknown>>(PLACE_USES);
       return Object.fromEntries(Object.entries(all ?? {}).map(([k, v]) => [k, Number(v) || 0]));
     },
+    async listRosters() {
+      const all = await redis.hgetall<Record<string, unknown>>(ROSTERS);
+      return all ? Object.values(all).map((v) => parse<RosterList>(v)) : [];
+    },
+    async getRoster(id) {
+      const v = await redis.hget(ROSTERS, id);
+      return v ? parse<RosterList>(v) : null;
+    },
+    async saveRoster(r) {
+      await redis.hset(ROSTERS, { [r.id]: JSON.stringify(r) });
+    },
+    async deleteRoster(id) {
+      await redis.hdel(ROSTERS, id);
+    },
     async addPlaceUses(ids) {
       if (!ids.length) return;
       const p = redis.pipeline();
@@ -141,6 +180,7 @@ function redisStore(redis: Redis): Store {
 }
 
 interface Mem {
+  rosters: Map<string, RosterList>;
   places: Map<string, Place>;
   placeUses: Map<string, number>;
   polls: Map<string, Poll>;
@@ -152,6 +192,7 @@ interface Mem {
 function memoryStore(): Store {
   const g = globalThis as unknown as { __mem?: Mem };
   const m = (g.__mem ??= {
+    rosters: new Map(),
     places: new Map(),
     placeUses: new Map(),
     polls: new Map(),
@@ -170,7 +211,13 @@ function memoryStore(): Store {
   return {
     kind: "memory",
     async getPoll(id) {
-      return structuredClone(m.polls.get(id) ?? null);
+      const p = m.polls.get(id);
+      if (p && expiresAtSec(p) * 1000 < Date.now()) {
+        m.polls.delete(id);
+        m.resp.delete(id);
+        return null;
+      }
+      return structuredClone(p ?? null);
     },
     async savePoll(poll) {
       m.polls.set(poll.id, structuredClone(poll));
@@ -221,6 +268,18 @@ function memoryStore(): Store {
     },
     async placeUses() {
       return Object.fromEntries(m.placeUses);
+    },
+    async listRosters() {
+      return structuredClone([...m.rosters.values()]);
+    },
+    async getRoster(id) {
+      return structuredClone(m.rosters.get(id) ?? null);
+    },
+    async saveRoster(r) {
+      m.rosters.set(r.id, structuredClone(r));
+    },
+    async deleteRoster(id) {
+      m.rosters.delete(id);
     },
     async addPlaceUses(ids) {
       for (const id of ids) m.placeUses.set(id, (m.placeUses.get(id) ?? 0) + 1);

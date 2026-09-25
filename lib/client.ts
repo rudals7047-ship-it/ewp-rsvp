@@ -2,7 +2,7 @@
 
 import { nameKey } from "./poll";
 import type { Place, PlaceMenu, Region } from "./places";
-import type { PollDetail, PollSummary, Question } from "./types";
+import type { PollDetail, PollSummary, Question, RosterSummary } from "./types";
 import { ATTEND } from "./types";
 
 /* ---------- 브라우저 저장소 (실패해도 동작하도록) ---------- */
@@ -93,10 +93,10 @@ export const api = {
       id,
     ),
   detail: (id: string) => request<{ poll: PollDetail }>(`/api/polls/${id}`, {}, id),
-  respond: (id: string, name: string, answers: unknown) =>
+  respond: (id: string, name: string, answers: unknown, proxy = false) =>
     request<{ poll: PollDetail }>(
       `/api/polls/${id}/responses`,
-      { method: "POST", body: JSON.stringify({ name, answers }) },
+      { method: "POST", body: JSON.stringify({ name, answers, proxy }) },
       id,
     ),
   admin: (
@@ -117,6 +117,11 @@ export const api = {
     menus: PlaceMenu[];
     naverId?: string;
   }) => request<{ place: Place }>("/api/places", { method: "POST", body: JSON.stringify(p) }),
+  rosters: (region: Region) => request<{ rosters: RosterSummary[] }>(`/api/rosters?region=${region}`),
+  createRoster: (b: { region: Region; title: string; names: string[]; pin: string }) =>
+    request<{ roster: RosterSummary }>("/api/rosters", { method: "POST", body: JSON.stringify(b) }),
+  roster: (id: string, b: { pin: string; action: "open" | "update" | "delete"; names?: string[]; title?: string }) =>
+    request<{ names?: string[]; title?: string; ok?: true }>(`/api/rosters/${id}`, { method: "POST", body: JSON.stringify(b) }),
   removeResponse: (id: string, name: string) =>
     request<{ poll: PollDetail }>(`/api/polls/${id}/responses?name=${encodeURIComponent(name)}`, { method: "DELETE" }, id),
   remove: (id: string) => request<{ ok: true }>(`/api/polls/${id}`, { method: "DELETE" }, id),

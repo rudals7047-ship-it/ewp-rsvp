@@ -9,6 +9,7 @@ import type { PollDetail, PollSummary } from "@/lib/types";
 import { CreateSheet } from "./CreateSheet";
 import { CardSkeleton, PollCard } from "./PollCard";
 import { PollSheet } from "./PollSheet";
+import { PrivacySheet } from "./Privacy";
 import { Button, Toaster, cx, toast, useNow } from "./ui";
 
 const ALL = "__all__";
@@ -23,6 +24,7 @@ export function Home({ initialPollId }: { initialPollId?: string }) {
   const [createKey, setCreateKey] = useState(0);
   const [, force] = useState(0);
   const [showAllDone, setShowAllDone] = useState(false);
+  const [privacyOpen, setPrivacyOpen] = useState(false);
   const pending = useRef(initialPollId);
   const now = useNow();
 
@@ -43,6 +45,10 @@ export function Home({ initialPollId }: { initialPollId?: string }) {
 
   // 초기화: 팀 선택 복원, 관리 링크(#admin=) 처리, 목록 로드
   useEffect(() => {
+    // 개인정보: 예전 버전이 기기에 저장한 명단(실명)을 정리
+    try {
+      for (const k of Object.keys(localStorage)) if (k.startsWith("roster:")) localStorage.removeItem(k);
+    } catch {}
     const site = new URLSearchParams(location.search).get("site") ?? local.get(keys.region);
     if (site) setRegion(regionOf(site));
     const q = new URLSearchParams(location.search).get("team");
@@ -300,7 +306,12 @@ export function Home({ initialPollId }: { initialPollId?: string }) {
           </>
         )}
 
-        <footer className="mt-14 text-center text-[12px] text-ink-3/80">응답은 이름 기준으로 저장되며, 같은 이름으로 다시 응답하면 수정돼요.</footer>
+        <footer className="mt-14 text-center text-[12px] leading-relaxed text-ink-3/80">
+          투표와 응답은 모임 90일 후 자동 삭제돼요 ·{" "}
+          <button type="button" onClick={() => setPrivacyOpen(true)} className="font-semibold text-ink-2 underline underline-offset-2">
+            개인정보 안내
+          </button>
+        </footer>
       </div>
 
       {/* 모바일 하단 고정 버튼 */}
@@ -314,6 +325,7 @@ export function Home({ initialPollId }: { initialPollId?: string }) {
         </motion.button>
       </div>
 
+      <PrivacySheet open={privacyOpen} onClose={() => setPrivacyOpen(false)} />
       <PollSheet
         summary={openPoll}
         onClose={closeCard}

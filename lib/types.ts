@@ -55,6 +55,8 @@ export interface PollResponse {
   /** 클라이언트용: 이 기기가 작성한 응답인지 / 다른 기기가 작성해 잠긴 응답인지 */
   own?: boolean;
   locked?: boolean;
+  /** 관리자가 대신 입력한 응답 */
+  proxy?: boolean;
 }
 
 export type PollStatus = "open" | "closed";
@@ -87,3 +89,22 @@ export interface PollDetail extends PollSummary {
 
 export const ATTEND = { yes: "참석", maybe: "미정", no: "불참" } as const;
 export const ATTEND_OPTIONS = [ATTEND.yes, ATTEND.maybe, ATTEND.no];
+
+/** 재사용 가능한 참석자 명단. 제목만 공개, 이름은 PIN 인증 후 */
+export interface RosterList {
+  id: string;
+  region: Region;
+  title: string;
+  names: string[];
+  pinSalt: string;
+  pinHash: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface RosterSummary {
+  id: string;
+  region: Region;
+  title: string;
+  updatedAt: number;
+}

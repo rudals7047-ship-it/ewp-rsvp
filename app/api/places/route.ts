@@ -1,4 +1,5 @@
-import { clientIp, randomId } from "@/lib/auth";
+import { randomId } from "@/lib/auth";
+import { overLimit } from "@/lib/ratelimit";
 import { fail, json, readJson } from "@/lib/http";
 import { type Place, parseSnap, regionOf } from "@/lib/places";
 import { getPlace, getPlaces } from "@/lib/places-server";
@@ -12,7 +13,7 @@ export async function GET(req: Request) {
 /** 식당 추가/수정 (공용 목록). 기존 투표에는 스냅샷이 저장되므로 영향 없음 */
 export async function POST(req: Request) {
   const store = getStore();
-  if ((await store.hit(`rl:place:${clientIp(req)}`, 3600)) > 40) return fail("잠시 후 다시 시도해 주세요.", 429);
+  if (await overLimit(req, "place", 40, 3600)) return fail("잠시 후 다시 시도해 주세요.", 429);
   const body = (await readJson(req)) as Record<string, unknown> | null;
   const snap = parseSnap(body);
   if (!snap) return fail("식당 이름을 입력해 주세요.");

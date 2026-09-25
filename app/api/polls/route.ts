@@ -1,6 +1,7 @@
-import { clientIp, hashAdmin, hashPin, randomId } from "@/lib/auth";
+import { hashAdmin, hashPin, randomId } from "@/lib/auth";
 import { fail, json, readJson } from "@/lib/http";
 import { parseCreate, toSummary } from "@/lib/poll";
+import { overLimit } from "@/lib/ratelimit";
 import { getStore } from "@/lib/store";
 import type { Poll } from "@/lib/types";
 
@@ -15,8 +16,7 @@ export async function GET() {
 
 export async function POST(req: Request) {
   const store = getStore();
-  const ip = clientIp(req);
-  if ((await store.hit(`rl:create:${ip}`, 3600)) > 30) {
+  if (await overLimit(req, "create", 30, 3600)) {
     return fail("잠시 후 다시 시도해 주세요.", 429);
   }
   const parsed = parseCreate(await readJson(req));

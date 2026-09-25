@@ -24,6 +24,7 @@ import { LIMITS } from "@/lib/poll";
 import { type Place, type Region, menuLabel, toSnap } from "@/lib/places";
 import type { QuestionKind, Template } from "@/lib/types";
 import { ChipsInput } from "./ChipsInput";
+import { RosterField } from "./Rosters";
 import { MenuSuggestions, PlacePicker } from "./Places";
 import { PinPad } from "./PinPad";
 import { Sheet, SheetBody, SheetFooter } from "./Sheet";
@@ -43,16 +44,6 @@ const SLOTS = { lunch: "12:00", dinner: "18:30" } as const;
 
 type Created = { id: string; adminToken: string; title: string; team: string; menuLater: boolean };
 
-/** 팀별로 마지막에 쓴 참여 명단을 기억 */
-function rosterFor(team: string | null): string[] {
-  if (!team) return [];
-  try {
-    const v = JSON.parse(local.get(`roster:${team}`) ?? "[]");
-    return Array.isArray(v) ? v.filter((x) => typeof x === "string") : [];
-  } catch {
-    return [];
-  }
-}
 
 export function CreateSheet({
   open,
@@ -87,7 +78,7 @@ export function CreateSheet({
   const [deadline, setDeadline] = useState("");
   const [note, setNote] = useState("");
   const [questions, setQuestions] = useState<DraftQ[]>(generalQuestions);
-  const [roster, setRoster] = useState<string[]>(() => rosterFor(defaultTeam));
+  const [roster, setRoster] = useState<string[]>([]);
   // 식사 모임 구성
   const [placeMode, setPlaceMode] = useState<"vote" | "fixed" | "none">("vote");
   const [candidatePlaces, setCandidatePlaces] = useState<Place[]>([]);
@@ -169,7 +160,6 @@ export function CreateSheet({
       const res = await api.create(body);
       local.set(keys.admin(res.id), res.adminToken);
       local.set(keys.team, body.team);
-      if (roster.length) local.set(`roster:${body.team}`, JSON.stringify(roster));
       setCreated({ ...res, title: body.title, team: body.team, menuLater: isMeal && placeMode === "vote" && menuLater });
       track("poll-created");
       onCreated(res.id, body.team);
@@ -259,7 +249,6 @@ export function CreateSheet({
                           onClick={() => {
                             setTeam(t);
                             setAddingTeam(false);
-                            setRoster(rosterFor(t));
                           }}
                         >
                           {t}
@@ -290,18 +279,10 @@ export function CreateSheet({
                     )}
                   </Field>
 
-                  <Field label="참여 대상 명단" hint={roster.length ? `${roster.length}명 · 팀별로 기억돼요` : "선택"}>
-                    <ChipsInput
-                      values={roster}
-                      onChange={setRoster}
-                      max={LIMITS.roster}
-                      maxLength={LIMITS.name}
-                      label="이름"
-                      placeholder="이름 추가"
-                      emptyPlaceholder="예) 김민준, 이서연 (쉼표로 여러 명)"
-                    />
+                  <Field label="참여 대상 명단" hint={roster.length ? `${roster.length}명` : "선택"}>
+                    <RosterField region={region} names={roster} onChange={setRoster} defaultTitle={team.trim()} />
                     <p className="mt-2 text-[12.5px] leading-relaxed text-ink-3">
-                      입력하면 참여자는 이름을 탭해서 고르고, 결과에서 미응답자를 바로 확인할 수 있어요.
+                      입력하면 참여자는 이름을 탭해서 고르고, 결과에서 미응답자를 확인할 수 있어요. 명단은 PIN을 입력한 사람만 볼 수 있어요.
                     </p>
                   </Field>
 
@@ -337,7 +318,7 @@ export function CreateSheet({
                     </>
                   )}
 
-                  <Field asLabel label="제목" hint={isMeal ? "비워두면 자동으로 채워져요" : undefined}>
+                  <Field asLabel label="제목" hint={isMeal ? "비워두면 자동으로 채워져요" : "PIN 없이 목록에 보여요"}>
                     <input
                       value={title}
                       onChange={(e) => setTitle(e.target.value)}

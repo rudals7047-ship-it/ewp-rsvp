@@ -1,7 +1,7 @@
 "use client";
 
 import { AnimatePresence, motion } from "motion/react";
-import { Check, ChevronLeft, CircleHelp, Lock, UserRound, X } from "lucide-react";
+import { Check, ChevronLeft, CircleHelp, Crown, Lock, UserRound, X } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 import { ApiError, api, keys, local, vibrate } from "@/lib/client";
 import { menuLabel, naverUrl } from "@/lib/places";
@@ -20,18 +20,22 @@ export function VoteFlow({
   poll,
   onDone,
   onCancel,
+  proxy,
 }: {
   poll: PollDetail;
   onDone: (poll: PollDetail, name: string, answers: Record<string, Answer>) => void;
   onCancel: () => void;
+  /** 관리자 대리 입력 모드 (initialName: 미리 선택할 이름) */
+  proxy?: { initialName?: string };
 }) {
-  const savedName = poll.responses.find((r) => r.own)?.name ?? local.get(keys.name) ?? "";
+  const savedName = proxy ? (proxy.initialName ?? "") : (poll.responses.find((r) => r.own)?.name ?? local.get(keys.name) ?? "");
   const existing = (n: string) => poll.responses.find((r) => nameKey(r.name) === nameKey(n));
   const [name, setName] = useState(savedName);
   const [typing, setTyping] = useState(() => !poll.roster?.length || (!!savedName && !inRoster(poll.roster, savedName)));
   const [answers, setAnswers] = useState<Record<string, Answer>>(() => existing(savedName)?.answers ?? {});
   // 이미 응답한 사람이 2차 질문 때문에 다시 들어오면 새 질문으로 바로 이동
   const [idx, setIdx] = useState(() => {
+    if (proxy) return 0;
     const ex = existing(savedName);
     if (!ex) return 0;
     const pending = pendingQuestions(poll, ex.answers)[0];
@@ -69,8 +73,8 @@ export function VoteFlow({
     setBusy(true);
     try {
       const trimmed = name.trim();
-      const { poll: updated } = await api.respond(poll.id, trimmed, final);
-      local.set(keys.name, trimmed);
+      const { poll: updated } = await api.respond(poll.id, trimmed, final, !!proxy);
+      if (!proxy) local.set(keys.name, trimmed);
       onDone(updated, trimmed, final);
     } catch (e) {
       toast(e instanceof ApiError ? e.message : "저장에 실패했어요.");
@@ -115,10 +119,15 @@ export function VoteFlow({
   const multiCount = current?.kind === "multi" ? ((answers[current.id] as string[] | undefined)?.length ?? 0) : 0;
   const textVal = current?.kind === "text" ? ((answers[current.id] as string | undefined) ?? "") : "";
   const prev = step.key === "name" && name.trim() ? existing(name) : undefined;
-  const lockedName = !!prev?.locked;
+  const lockedName = !proxy && !!prev?.locked;
 
   return (
     <>
+      {proxy && (
+        <div className="mx-4 mt-1 flex items-center gap-1.5 rounded-xl bg-[#fdf5e3] px-3 py-2 text-[12.5px] font-semibold text-[#8a5a12] sm:mr-14 sm:mt-4">
+          <Crown className="size-4 shrink-0" /> 관리자 대리 입력 중 · 결과에 &lsquo;대리&rsquo;로 표시돼요
+        </div>
+      )}
       <div className="flex shrink-0 items-center gap-2 px-3 pt-2 sm:pt-4">
         <IconButton label="이전" onClick={back}>
           <ChevronLeft className="size-6" />
@@ -151,8 +160,8 @@ export function VoteFlow({
               <>
                 <StepHead
                   eyebrow={poll.title}
-                  title={poll.roster?.length && !typing ? "본인 이름을 선택하세요" : "이름을 알려주세요"}
-                  sub="같은 이름으로 다시 응답하면 기존 응답이 수정돼요."
+                  title={proxy ? "누구의 응답을 입력할까요?" : poll.roster?.length && !typing ? "본인 이름을 선택하세요" : "이름을 알려주세요"}
+                  sub={proxy ? "이미 응답한 사람을 고르면 그 응답을 수정해요. 본인도 나중에 직접 수정할 수 있어요." : "같은 이름으로 다시 응답하면 기존 응답이 수정돼요."}
                 />
                 {poll.roster?.length && !typing ? (
                   <>
@@ -177,7 +186,7 @@ export function VoteFlow({
                           >
                             <span className="truncate">{n}</span>
                             {done &&
-                              (r?.locked ? (
+                              (r?.locked && !proxy ? (
                                 <Lock className={cx("size-3 shrink-0", on ? "text-white/70" : "text-ink-3")} strokeWidth={2.6} aria-label="다른 기기에서 응답함" />
                               ) : (
                                 <Check className={cx("size-3.5 shrink-0", on ? "text-white/80" : "text-accent")} strokeWidth={3} aria-label="응답함" />
@@ -201,7 +210,7 @@ export function VoteFlow({
                   <div className="relative">
                     <UserRound className="pointer-events-none absolute left-4 top-1/2 size-5 -translate-y-1/2 text-ink-3" />
                     <input
-                      autoFocus={!savedName}
+                      autoFocus={!savedName && !proxy}
                       value={name}
                       maxLength={20}
                       onChange={(e) => chooseName(e.target.value)}
@@ -222,7 +231,7 @@ export function VoteFlow({
                   ) : (
                     <p className="mt-3 flex items-center gap-1.5 rounded-xl bg-accent-soft px-3 py-2.5 text-[13px] font-medium text-accent">
                       <Check className="size-4 shrink-0" strokeWidth={3} />
-                      이전 응답을 불러왔어요. 수정 후 다시 저장할 수 있어요.
+                      {proxy ? `${prev.name}님의 기존 응답을 불러왔어요.` : "이전 응답을 불러왔어요. 수정 후 다시 저장할 수 있어요."}
                     </p>
                   ))}
               </>

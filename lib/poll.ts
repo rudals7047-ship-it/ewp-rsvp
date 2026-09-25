@@ -51,10 +51,11 @@ export function toDetail(p: Poll, responses: PollResponse[], requesterHash?: str
     placeInfo: p.placeInfo ?? {},
     questions: p.questions,
     responses: responses
-      .map(({ name, answers, updatedAt, ownerHash }) => ({
+      .map(({ name, answers, updatedAt, ownerHash, proxy }) => ({
         name,
         answers,
         updatedAt,
+        proxy: proxy || undefined,
         own: !!ownerHash && ownerHash === requesterHash,
         locked: !!ownerHash && ownerHash !== requesterHash,
       }))

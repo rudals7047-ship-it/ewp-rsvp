@@ -1,6 +1,7 @@
-import { requesterHash, clientIp, hashOwner, verifyAccess, verifyAdmin, verifyOwner } from "@/lib/auth";
+import { requesterHash, hashOwner, verifyAccess, verifyAdmin, verifyOwner } from "@/lib/auth";
 import { fail, json, readJson } from "@/lib/http";
 import { LIMITS, nameKey, parseAnswers, pollStatus, toDetail } from "@/lib/poll";
+import { overLimit } from "@/lib/ratelimit";
 import { getStore } from "@/lib/store";
 
 type Ctx = { params: Promise<{ id: string }> };
@@ -10,14 +11,17 @@ export async function POST(req: Request, { params }: Ctx) {
   const store = getStore();
   const poll = await store.getPoll(id);
   if (!poll) return fail("투표를 찾을 수 없어요.", 404);
-  if (!(await verifyAccess(poll, req.headers.get("x-poll-token")))) return fail("PIN 인증이 필요해요.", 401);
-  if (pollStatus(poll) === "closed") return fail("이미 마감된 투표예요.", 409);
-  if ((await store.hit(`rl:resp:${clientIp(req)}`, 600)) > 60) return fail("잠시 후 다시 시도해 주세요.", 429);
+  const isAdmin = await verifyAdmin(poll, req.headers.get("x-admin-token"));
+  if (!isAdmin && !(await verifyAccess(poll, req.headers.get("x-poll-token")))) return fail("PIN 인증이 필요해요.", 401);
+  if (pollStatus(poll) === "closed" && !isAdmin) return fail("이미 마감된 투표예요.", 409);
+  if (await overLimit(req, "resp", 60, 600)) return fail("잠시 후 다시 시도해 주세요.", 429);
 
+  const body = (await readJson(req)) as { name?: unknown; answers?: unknown; proxy?: unknown } | null;
+  // 관리자(투표 생성자)는 다른 사람의 응답을 대신 입력·수정할 수 있음
+  const proxy = isAdmin && body?.proxy === true;
   const owner = req.headers.get("x-owner-token") ?? "";
-  if (!/^[\w-]{16,64}$/.test(owner)) return fail("브라우저를 새로고침한 뒤 다시 시도해 주세요.");
+  if (!proxy && !/^[\w-]{16,64}$/.test(owner)) return fail("브라우저를 새로고침한 뒤 다시 시도해 주세요.");
 
-  const body = (await readJson(req)) as { name?: unknown; answers?: unknown } | null;
   const name = typeof body?.name === "string" ? body.name.trim().replace(/\s+/g, " ").slice(0, LIMITS.name) : "";
   if (!name) return fail("이름을 입력해 주세요.");
   const parsed = parseAnswers(poll, body?.answers);
@@ -27,9 +31,9 @@ export async function POST(req: Request, { params }: Ctx) {
   const all = await store.getResponses(id);
   const prev = all.find((r) => nameKey(r.name) === key);
   if (!prev && all.length >= LIMITS.responses) return fail("응답 인원이 너무 많아요.", 409);
-  // 다른 기기에서 먼저 응답한 이름은 덮어쓸 수 없음 (대리 수정·장난 방지)
-  if (prev?.ownerHash && !(await verifyOwner(id, owner, prev.ownerHash))) {
-    return fail("다른 기기에서 이미 응답한 이름이에요. 본인이라면 처음 응답한 기기에서 수정하거나 관리자에게 초기화를 요청하세요.", 409);
+  // 다른 기기에서 먼저 응답한 이름은 덮어쓸 수 없음 (대리 수정·장난 방지). 관리자 대리 입력은 예외
+  if (!proxy && prev?.ownerHash && !(await verifyOwner(id, owner, prev.ownerHash))) {
+    return fail("다른 기기에서 이미 응답한 이름이에요. 본인이라면 처음 응답한 기기에서 수정하거나 관리자에게 요청하세요.", 409);
   }
 
   // 확정된 질문(예: 1차 식당 투표)의 기존 응답은 그대로 보존
@@ -38,10 +42,12 @@ export async function POST(req: Request, { params }: Ctx) {
     if (prev?.answers[qid] !== undefined) answers[qid] = prev.answers[qid];
   }
   await store.saveResponse(id, key, {
-    name,
+    name: proxy && prev ? prev.name : name,
     answers,
     updatedAt: Date.now(),
-    ownerHash: prev?.ownerHash ?? (await hashOwner(id, owner)),
+    // 대리 입력은 소유권을 새로 부여하지 않음 → 본인이 나중에 자기 기기에서 수정하면 그 기기가 소유
+    ownerHash: proxy ? prev?.ownerHash : (prev?.ownerHash ?? (await hashOwner(id, owner))),
+    proxy: proxy || undefined,
   });
   return json({ poll: toDetail(poll, await store.getResponses(id), await requesterHash(req, id)) });
 }
