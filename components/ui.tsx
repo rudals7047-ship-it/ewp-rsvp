@@ -175,6 +175,38 @@ export function Field({
 export const inputCls =
   "h-13 w-full rounded-2xl border border-line bg-surface px-4 text-[16px] text-ink placeholder:text-ink-3/80 outline-none transition focus:border-ink/30 focus:ring-4 focus:ring-ink/[0.05]";
 
+/**
+ * 시트 안의 스크롤 영역만 움직여 요소를 보이게 함.
+ * (scrollIntoView는 overflow-hidden인 바깥 시트까지 밀어 내용이 잘리는 문제가 있음)
+ */
+export function reveal(el: Element | null | undefined, block: "center" | "start" = "center") {
+  if (!el) return;
+  let box = el.parentElement;
+  while (box && !/(auto|scroll)/.test(getComputedStyle(box).overflowY)) box = box.parentElement;
+  if (!box) return;
+  const r = el.getBoundingClientRect();
+  const b = box.getBoundingClientRect();
+  const offset = r.top - b.top + box.scrollTop;
+  const top = block === "center" ? offset - box.clientHeight / 2 + r.height / 2 : offset - 12;
+  box.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
+}
+
+/**
+ * 비활성 버튼 대신: 눌렀을 때 입력·선택해야 할 첫 번째 칸으로 이동해 강조(빨간 테두리 + 흔들림)하고 안내
+ */
+export function flash(id: string, message?: string) {
+  const el = document.getElementById(id);
+  if (message) toast(message);
+  if (!el) return;
+  reveal(el);
+  el.classList.remove("attention");
+  void el.offsetWidth; // 애니메이션 재시작
+  el.classList.add("attention");
+  setTimeout(() => el.classList.remove("attention"), 1600);
+  const input = el.matches("input,textarea") ? (el as HTMLInputElement) : el.querySelector<HTMLInputElement>("input,textarea");
+  input?.focus({ preventScroll: true });
+}
+
 /* ---------- Toast ---------- */
 
 type ToastMsg = { id: number; text: string };

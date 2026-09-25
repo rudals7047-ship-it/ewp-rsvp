@@ -82,12 +82,21 @@ export function ChipsInput({
           <button
             type="button"
             onMouseDown={(e) => e.preventDefault()}
-            onClick={() => add(draft)}
-            disabled={!draft.trim()}
+            onClick={(e) => {
+              if (!draft.trim()) {
+                // 빈 상태에서 누르면 입력칸으로 안내
+                const input = (e.currentTarget.previousElementSibling as HTMLInputElement | null);
+                input?.focus();
+                input?.classList.add("attention");
+                setTimeout(() => input?.classList.remove("attention"), 1600);
+                return;
+              }
+              add(draft);
+            }}
             aria-label={`${label} 추가`}
             className={cx(
-              "flex size-11 shrink-0 items-center justify-center rounded-xl bg-ink text-white transition",
-              "disabled:bg-ink/10 disabled:text-ink-3",
+              "flex size-11 shrink-0 items-center justify-center rounded-xl transition",
+              draft.trim() ? "bg-ink text-white" : "bg-ink/10 text-ink-3",
             )}
           >
             <Plus className="size-5" />

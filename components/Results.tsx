@@ -46,7 +46,7 @@ import { ChipsInput } from "./ChipsInput";
 import { IdentityBar, StageBar } from "./Flow";
 import { MenuSuggestions, PlaceInfo } from "./Places";
 import { SheetBody, SheetFooter } from "./Sheet";
-import { Button, Toggle, cx, inputCls, toast } from "./ui";
+import { Button, Toggle, cx, flash, inputCls, reveal, toast } from "./ui";
 
 type AdminBody = Parameters<typeof api.admin>[1];
 
@@ -135,7 +135,7 @@ export function Results({
             <Button
               variant="secondary"
               size="md"
-              onClick={() => document.getElementById("admin-menu")?.scrollIntoView({ behavior: "smooth", block: "center" })}
+              onClick={() => reveal(document.getElementById("admin-menu"))}
             >
               <Crown className="size-4 text-[#c79a3a]" /> 관리자 메뉴
             </Button>
@@ -235,8 +235,9 @@ export function Results({
         )}
 
         {/* 확정 후 다음 차수 질문 열기 */}
-        {isAdmin && (
+        {isAdmin && (poll.template !== "meal" || (decidedList.length > 0 && !poll.questions.some((q) => q.topic === "menu"))) && (
           <NextRound
+            key={Object.values(poll.decisions).join()}
             poll={poll}
             highlight={decidedList.length > 0 && !hasOpenChoice}
             onSubmit={(question) => admin({ action: "addQuestion", question }, `${poll.round + 1}차 투표를 시작했어요`)}
@@ -366,6 +367,7 @@ function AdminLogin({ poll, onDone }: { poll: PollDetail; onDone: (p: PollDetail
           <p className="mb-2 text-[12.5px] text-ink-3">만들 때 정한 관리자 PIN 4자리를 입력하세요.</p>
           <div className="flex gap-2">
             <input
+              id="admin-pin"
               type="password"
               inputMode="numeric"
               pattern="[0-9]*"
@@ -379,7 +381,7 @@ function AdminLogin({ poll, onDone }: { poll: PollDetail; onDone: (p: PollDetail
               placeholder="PIN"
               className="h-11 w-[92px] shrink-0 rounded-xl bg-ink/[0.04] px-3 text-center text-[18px] font-bold tracking-[0.4em] outline-none placeholder:text-[14px] placeholder:font-medium placeholder:tracking-normal focus:bg-ink/[0.06]"
             />
-            <Button size="md" className="flex-1" loading={busy} disabled={pin.length !== 4} onClick={submit}>
+            <Button size="md" className="flex-1" loading={busy} onClick={() => (pin.length === 4 ? submit() : flash("admin-pin", "관리자 PIN 4자리를 입력해 주세요"))}>
               관리자 모드로 전환
             </Button>
           </div>
@@ -610,8 +612,9 @@ function Bars({
                 </Button>
                 <Button
                   size="md"
-                  disabled={!choice || busy}
+                  disabled={busy}
                   onClick={async () => {
+                    if (!choice) return toast("확정할 항목을 위에서 선택해 주세요");
                     if (choice && (await onDecide(choice))) setPicking(false);
                   }}
                 >
@@ -635,8 +638,8 @@ function Bars({
                 variant="secondary"
                 size="md"
                 className="w-full"
-                disabled={!leader}
                 onClick={() => {
+                  if (!leader) return toast("아직 투표가 없어요. 응답이 모이면 확정할 수 있어요");
                   setChoice(leader);
                   setPicking(true);
                 }}
@@ -661,14 +664,16 @@ function NextRound({
   onSubmit: (q: { kind: "single" | "multi"; title: string; options: string[] }) => Promise<boolean>;
 }) {
   const isMeal = poll.template === "meal";
-  const [open, setOpen] = useState(false);
-  const [title, setTitle] = useState(isMeal ? "어떤 메뉴로 하시겠어요?" : "");
-  const [options, setOptions] = useState<string[]>([]);
-  const [multi, setMulti] = useState(false);
-  const [busy, setBusy] = useState(false);
-  if (poll.questions.length >= LIMITS.questions) return null;
   const place = poll.place ?? Object.values(poll.decisions)[0];
   const placeMenus = (place && poll.placeInfo[place]?.menus) || [];
+  const [open, setOpen] = useState(false);
+  const [title, setTitle] = useState(isMeal ? "어떤 메뉴로 하시겠어요?" : "");
+  // 확정된 식당의 메뉴를 자동으로 채움 (탭해서 빼기 가능)
+  const [options, setOptions] = useState<string[]>(() => placeMenus.slice(0, LIMITS.options).map(menuLabel));
+  const [multi, setMulti] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  if (poll.questions.length >= LIMITS.questions) return null;
 
   if (!open) {
     return (
@@ -684,7 +689,7 @@ function NextRound({
           className={cx("w-full", highlight && "bg-white text-ink hover:bg-white/90")}
           onClick={() => setOpen(true)}
         >
-          <Plus className="size-4" /> {poll.round + 1}차 투표 열기 {isMeal ? "(메뉴 등)" : "(질문 추가)"}
+          <Plus className="size-4" /> {isMeal ? "메뉴 투표 열기" : `${poll.round + 1}차 투표 열기 (질문 추가)`}
         </Button>
       </div>
     );
@@ -694,15 +699,19 @@ function NextRound({
     <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="mt-8 rounded-2xl border border-line p-4">
       <p className="mb-3 text-[14px] font-bold">{poll.round + 1}차 투표 질문</p>
       <input
+        id="nr-title"
         value={title}
         onChange={(e) => setTitle(e.target.value)}
         maxLength={LIMITS.questionTitle}
         aria-label="질문"
+        aria-invalid={(err && !title.trim()) || undefined}
         placeholder="질문을 입력하세요"
-        className={cx(inputCls, "mb-3")}
+        className={cx(inputCls, "mb-3", err && !title.trim() && "border-danger ring-4 ring-danger/15")}
       />
+      <div id="nr-options" className={cx("rounded-2xl", err && title.trim() && options.length === 0 && "-m-2 p-2 ring-2 ring-danger/70")}>
       {placeMenus.length > 0 && (
         <MenuSuggestions
+          title={`${place} 메뉴 · 탭해서 빼거나 넣기`}
           menus={placeMenus}
           selected={options}
           onToggle={(l) => setOptions(options.includes(l) ? options.filter((x) => x !== l) : [...options, l].slice(0, LIMITS.options))}
@@ -717,6 +726,8 @@ function NextRound({
         placeholder="선택지 추가"
         emptyPlaceholder={isMeal ? `${place ?? "식당"} 메뉴 입력 (쉼표로 여러 개)` : "선택지 입력 (쉼표로 여러 개)"}
       />
+      </div>
+      {err && <p className="mt-2 text-[12.5px] font-medium text-danger">{err}</p>}
       <div className="mt-3">
         <Toggle checked={multi} onChange={setMulti} label="복수 선택 허용" />
       </div>
@@ -727,8 +738,13 @@ function NextRound({
         <Button
           size="md"
           loading={busy}
-          disabled={!title.trim() || options.length === 0}
           onClick={async () => {
+            if (!title.trim() || options.length === 0) {
+              setErr(!title.trim() ? "질문을 입력해 주세요" : "선택지를 1개 이상 넣어 주세요");
+              flash(!title.trim() ? "nr-title" : "nr-options");
+              return;
+            }
+            setErr(null);
             setBusy(true);
             const ok = await onSubmit({ kind: multi ? "multi" : "single", title: title.trim(), options });
             setBusy(false);

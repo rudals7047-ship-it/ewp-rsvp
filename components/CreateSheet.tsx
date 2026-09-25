@@ -28,7 +28,7 @@ import { RosterField } from "./Rosters";
 import { MenuSuggestions, PlacePicker } from "./Places";
 import { PinPad } from "./PinPad";
 import { Sheet, SheetBody, SheetFooter } from "./Sheet";
-import { Button, Field, IconButton, Segmented, Toggle, cx, inputCls, toast } from "./ui";
+import { Button, Field, flash, IconButton, Segmented, Toggle, cx, inputCls, toast } from "./ui";
 
 type Step = "type" | "info" | "questions" | "pin" | "pin2" | "admin" | "done";
 type DraftQ = {
@@ -90,7 +90,9 @@ export function CreateSheet({
   const [placeMode, setPlaceMode] = useState<"vote" | "fixed" | "none">("vote");
   const [candidatePlaces, setCandidatePlaces] = useState<Place[]>([]);
   const [fixedPlace, setFixedPlace] = useState<Place[]>([]);
-  const [menuLater, setMenuLater] = useState(true);
+  // 후보 투표면 메뉴는 항상 식당 확정 후 2차로 (한 번에 받기는 흐름이 복잡해 제거)
+  const menuLater = true;
+  const [askMenu, setAskMenu] = useState(false);
   const [menus, setMenus] = useState<string[]>([]);
   const [menuMulti, setMenuMulti] = useState(false);
   const [askNote, setAskNote] = useState(true);
@@ -123,7 +125,7 @@ export function CreateSheet({
   );
   const menuSource = placeMode === "fixed" ? (fixedPlace[0]?.menus ?? []) : [];
   // 식당·메뉴 한 번에 받기: 후보 식당별 메뉴 → 선택지 라벨(식당 간 같은 이름이면 식당명 덧붙임)과 소속 식당
-  const together = placeMode === "vote" && !menuLater;
+  const together = false;
   const dupLabels = (() => {
     const seen = new Map<string, number>();
     for (const p of candidatePlaces) for (const m of p.menus) seen.set(menuLabel(m), (seen.get(menuLabel(m)) ?? 0) + 1);
@@ -136,7 +138,7 @@ export function CreateSheet({
   const mealQs: DraftQ[] = [
     { key: "a", kind: "attendance", title: "참석하시나요?", options: [] },
     ...(placeMode === "vote" && candidates.length ? [{ key: "r", kind: "multi" as const, title: "어느 식당이 좋으세요?", options: candidates, topic: "place" as const }] : []),
-    ...((placeMode !== "vote" || !menuLater || !candidates.length) && menus.length
+    ...(placeMode !== "vote" && askMenu && menus.length
       ? [{ key: "m", kind: (menuMulti ? "multi" : "single") as QuestionKind, title: "어떤 메뉴로 하시겠어요?", options: menus, topic: "menu" as const, optionGroups: together && Object.keys(menuGroups).length ? menuGroups : undefined }]
       : []),
     ...(askNote ? [{ key: "n", kind: "text" as const, title: "요청사항이 있으면 알려주세요", options: [] }] : []),
@@ -157,19 +159,21 @@ export function CreateSheet({
     ? placeMode === "vote" && candidates.length < 2
       ? "식당 후보를 2곳 이상 입력해 주세요"
       : placeMode === "fixed" && !place.trim()
-        ? "식당 이름을 입력해 주세요"
-        : null
+        ? "식당을 선택해 주세요"
+        : placeMode !== "vote" && askMenu && menus.length === 0
+          ? "메뉴를 1개 이상 넣거나 '메뉴도 받기'를 꺼 주세요"
+          : null
     : validQs.length === 0 ? "질문과 선택지를 1개 이상 입력해 주세요" : questions.some((q) => (q.kind === "single" || q.kind === "multi") && q.options.length > 0 && !q.title.trim()) ? "질문 제목을 입력해 주세요" : null;
 
   const infoField = !team.trim() ? "team" : !finalTitle ? "title" : infoError?.includes("모임 시각") ? "date" : infoError ? "deadline" : null;
-  const qField = isMeal ? "place" : "questions";
+  const qField = isMeal ? (qError?.includes("메뉴") ? "menu" : "place") : "questions";
   function attempt(kind: "info" | "questions", error: string | null, field: string | null, next: Step) {
     if (!error) {
       setTried((t) => ({ ...t, [kind]: false }));
       return go(next);
     }
     setTried((t) => ({ ...t, [kind]: true }));
-    document.getElementById(`f-${field}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+    flash(`f-${field}`); // 해당 칸으로 이동 + 강조
   }
   const ferr = (field: string) => (tried.info && infoField === field ? infoError : null);
 
@@ -200,7 +204,7 @@ export function CreateSheet({
         title: body.title,
         team: body.team,
         menuLater: isMeal && placeMode === "vote" && menuLater,
-        stageLabel: isMeal && placeMode === "vote" && candidates.length ? (menuLater ? "식당 투표 중" : "식당·메뉴 투표 중") : isMeal && menus.length ? "메뉴 선택 중" : "투표 중",
+        stageLabel: isMeal && placeMode === "vote" && candidates.length ? "식당 투표 중" : isMeal && askMenu && menus.length ? "메뉴 선택 중" : isMeal ? "참석 확인 중" : "투표 중",
       });
       track("poll-created");
       onCreated(res.id, body.team);
@@ -419,7 +423,7 @@ export function CreateSheet({
                   <>
                 <Head title="식당과 메뉴" sub="참석 여부는 항상 먼저 물어보고, 불참자에게는 식당·메뉴를 묻지 않아요." />
                 <div className="space-y-6">
-                  <Field label="식당" id="f-place" error={tried.questions ? qError : null}>
+                  <Field label="식당" id="f-place" error={tried.questions && qField === "place" ? qError : null}>
                     <Segmented
                       value={placeMode}
                       onChange={setPlaceMode}
@@ -452,7 +456,9 @@ export function CreateSheet({
                           onChange={(v) => {
                             setFixedPlace(v);
                             // 식당을 고르면 대표 메뉴 6개를 선택지로 미리 채움 (탭으로 조정)
-                            setMenus((v[0]?.menus ?? []).slice(0, 6).map(menuLabel));
+                            const ms = (v[0]?.menus ?? []).slice(0, LIMITS.options).map(menuLabel);
+                            setMenus(ms);
+                            setAskMenu(ms.length > 0);
                           }}
                         />
                       )}
@@ -460,69 +466,54 @@ export function CreateSheet({
                     </div>
                   </Field>
 
-                  <Field label="메뉴">
-                    {placeMode === "vote" && (
-                      <div className="mb-3">
-                        <Segmented
-                          value={menuLater ? "later" : "now"}
-                          onChange={(v) => setMenuLater(v === "later")}
-                          options={[
-                            { value: "later", label: "식당 확정 후 받기", sub: "추천 · 2단계" },
-                            { value: "now", label: "지금 함께 받기", sub: "한 번에" },
-                          ]}
-                        />
-                      </div>
-                    )}
-                    {placeMode === "vote" && menuLater ? (
+                  <Field label="메뉴" id="f-menu" error={tried.questions && qField === "menu" ? qError : null}>
+                    {placeMode === "vote" ? (
                       <div className="rounded-2xl bg-accent-soft px-4 py-3.5 text-[13.5px] leading-relaxed text-[#0b6b51]">
-                        <b className="font-semibold">① 참석 + 식당 투표</b> → 관리자가 식당을 확정 → <b className="font-semibold">② 그 식당 메뉴로 2차 투표</b>
+                        <b className="font-semibold">① 참석 + 식당 투표</b> → 결과를 보고 식당 확정 → <b className="font-semibold">② 그 식당 메뉴로 2차 투표</b>
                         <br />
-                        응답했던 사람들의 카드에 &lsquo;2차 참여&rsquo; 버튼이 표시돼요.
+                        메뉴는 확정된 식당의 메뉴가 자동으로 채워져요. 지금은 입력할 필요가 없어요.
                       </div>
                     ) : (
                       <>
-                        {together ? (
-                          candidatePlaces.some((p) => p.menus.length) ? (
-                            <>
-                              <p className="mb-3 rounded-xl bg-accent-soft px-3 py-2.5 text-[12.5px] leading-relaxed text-[#0b6b51]">
-                                참여자에게는 <b>자신이 고른 식당의 메뉴만</b> 식당별로 보여줘요.
-                              </p>
-                              {candidatePlaces
-                                .filter((p) => p.menus.length)
-                                .map((p) => (
-                                  <MenuSuggestions
-                                    key={p.id}
-                                    title={`${p.name} 메뉴`}
-                                    menus={p.menus}
-                                    labelOf={(m) => groupLabel(p, m)}
-                                    selected={menus}
-                                    onToggle={(l) => setMenus(menus.includes(l) ? menus.filter((x) => x !== l) : [...menus, l].slice(0, LIMITS.options))}
-                                  />
-                                ))}
-                            </>
-                          ) : (
-                            <p className="mb-3 text-[12.5px] text-ink-3">후보 식당에 등록된 메뉴가 없어요. 아래에 직접 입력하거나 식당 &lsquo;편집&rsquo;에서 메뉴를 추가하세요.</p>
-                          )
-                        ) : (
-                          <MenuSuggestions
-                            menus={menuSource}
-                            selected={menus}
-                            onToggle={(l) => setMenus(menus.includes(l) ? menus.filter((x) => x !== l) : [...menus, l].slice(0, LIMITS.options))}
+                        <div className="flex items-center justify-between rounded-2xl border border-line px-4 py-3">
+                          <span>
+                            <span className="block text-[14.5px] font-semibold">메뉴도 받기</span>
+                            <span className="block text-[12.5px] text-ink-3">
+                              {placeMode === "fixed" && fixedPlace[0]?.menus.length ? "이 식당 메뉴가 자동으로 채워져요" : "참여자가 먹을 메뉴를 골라요"}
+                            </span>
+                          </span>
+                          <Toggle
+                            checked={askMenu}
+                            onChange={(v) => {
+                              setAskMenu(v);
+                              if (v && !menus.length && menuSource.length) setMenus(menuSource.slice(0, LIMITS.options).map(menuLabel));
+                            }}
+                            label=""
+                            ariaLabel="메뉴도 받기"
                           />
-                        )}
-                        {/* 식당 메뉴에서 고른 항목은 위에 표시되므로, 아래에는 직접 추가한 항목만 */}
-                        <ChipsInput
-                          values={menus.filter((m) => !suggested.has(m))}
-                          onChange={(custom) => setMenus([...menus.filter((m) => suggested.has(m)), ...custom].slice(0, LIMITS.options))}
-                          max={LIMITS.options}
-                          maxLength={LIMITS.option}
-                          label="메뉴"
-                          placeholder="메뉴 추가"
-                          emptyPlaceholder={suggested.size ? "목록에 없는 메뉴 직접 추가 (모든 식당 공통)" : "예) 김치찌개, 된장찌개 (비워두면 생략)"}
-                        />
-                        {menus.length > 0 && (
+                        </div>
+                        {askMenu && (
                           <div className="mt-3">
-                            <Toggle checked={menuMulti} onChange={setMenuMulti} label="복수 선택 허용" />
+                            <MenuSuggestions
+                              title="탭해서 빼거나 넣기"
+                              menus={menuSource}
+                              selected={menus}
+                              onToggle={(l) => setMenus(menus.includes(l) ? menus.filter((x) => x !== l) : [...menus, l].slice(0, LIMITS.options))}
+                            />
+                            <ChipsInput
+                              values={menus.filter((m) => !suggested.has(m))}
+                              onChange={(custom) => setMenus([...menus.filter((m) => suggested.has(m)), ...custom].slice(0, LIMITS.options))}
+                              max={LIMITS.options}
+                              maxLength={LIMITS.option}
+                              label="메뉴"
+                              placeholder="메뉴 추가"
+                              emptyPlaceholder={menuSource.length ? "목록에 없는 메뉴 직접 추가" : "예) 김치찌개, 된장찌개 (쉼표로 여러 개)"}
+                            />
+                            {menus.length > 0 && (
+                              <div className="mt-3">
+                                <Toggle checked={menuMulti} onChange={setMenuMulti} label="복수 선택 허용" />
+                              </div>
+                            )}
                           </div>
                         )}
                       </>
@@ -543,7 +534,7 @@ export function CreateSheet({
                       { t: "이름 선택", s: roster.length ? "명단에서 탭" : "이름 입력" },
                       { t: "참석 여부", s: "참석 · 미정 · 불참" },
                       ...(placeMode === "vote" && candidates.length ? [{ t: `식당 투표 · ${candidates.length}곳`, s: "주소·대표메뉴와 함께 표시" }] : []),
-                      ...((placeMode !== "vote" || !menuLater) && menus.length ? [{ t: `메뉴 선택 · ${menus.length}개`, s: menuMulti ? "복수 선택" : "하나만 선택" }] : []),
+                      ...(placeMode !== "vote" && askMenu && menus.length ? [{ t: `메뉴 선택 · ${menus.length}개`, s: menuMulti ? "복수 선택" : "하나만 선택" }] : []),
                       ...(placeMode === "vote" && menuLater ? [{ t: "식당 확정 후 → 2차 메뉴 투표", s: "관리자가 확정하면 열려요", later: true }] : []),
                       ...(askNote ? [{ t: "요청사항", s: "선택 응답 · 건너뛰기 가능" }] : []),
                     ]}
