@@ -116,8 +116,14 @@ export function PlacePicker({
       setQ("");
       return;
     }
-    if (selectedIds.has(p.id)) onChange(selected.filter((x) => x.id !== p.id));
-    else if (!full) onChange([...selected, p]);
+    if (selectedIds.has(p.id)) return onChange(selected.filter((x) => x.id !== p.id));
+    if (full) return;
+    onChange([...selected, p]);
+    // 검색해서 고른 뒤에는 검색어를 비우고 목록을 닫음 (추가된 식당이 위에 바로 보이게)
+    if (q.trim()) {
+      setQ("");
+      setOpen(false);
+    }
   }
 
   function startNew() {

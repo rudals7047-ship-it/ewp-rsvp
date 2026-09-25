@@ -1,7 +1,7 @@
 "use client";
 
 import { Check, Crown, Eye, Lock, Megaphone, UserRound } from "lucide-react";
-import { Fragment, useEffect, useRef } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import type { Stage } from "@/lib/types";
 import { josa } from "@/lib/client";
 import { cx, toast } from "./ui";
@@ -133,13 +133,21 @@ export function StepNav({
 }
 
 /** 만든 사람이 남긴 안내 메모: 눈에 띄게 */
-export function NoteCard({ note, className }: { note: string; className?: string }) {
+export function NoteCard({ note, className, compact }: { note: string; className?: string; compact?: boolean }) {
+  // compact: 응답 화면에서는 두 줄까지만 보이고 눌러서 펼침 (작은 화면에서 이름 목록이 가려지지 않게)
+  const long = note.split("\n").length > 2 || note.length > 60;
+  const [open, setOpen] = useState(!compact || !long);
   return (
     <div className={cx("flex gap-2.5 rounded-2xl border border-[#f0d9a8] bg-[#fdf5e3] px-4 py-3", className)}>
       <Megaphone className="mt-0.5 size-4 shrink-0 text-[#b7791f]" />
-      <div className="min-w-0">
+      <div className="min-w-0 flex-1">
         <p className="text-[12px] font-bold text-[#8a5a12]">만든 사람의 안내</p>
-        <p className="mt-0.5 whitespace-pre-line break-keep text-[14px] font-medium leading-relaxed text-ink">{note}</p>
+        <p className={cx("mt-0.5 whitespace-pre-line break-keep text-[14px] font-medium leading-relaxed text-ink", !open && "line-clamp-2")}>{note}</p>
+        {!open && (
+          <button type="button" onClick={() => setOpen(true)} className="mt-0.5 text-[12.5px] font-semibold text-[#8a5a12] underline underline-offset-2">
+            더보기
+          </button>
+        )}
       </div>
     </div>
   );

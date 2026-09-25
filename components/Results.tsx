@@ -4,6 +4,7 @@ import { AnimatePresence, motion } from "motion/react";
 import {
   BadgeCheck,
   CalendarDays,
+  Clock,
   Check,
   CircleHelp,
   ClipboardCopy,
@@ -139,10 +140,20 @@ export function Results({
           {poll.note && <NoteCard note={poll.note} className="mb-3" />}
           {poll.eventAt && (
             <div className="mb-3 space-y-1 text-[13.5px] text-ink-3">
-              {poll.eventAt && (
-                <p className="flex items-center gap-1.5">
-                  <CalendarDays className="size-4" /> {fmtDate(poll.eventAt)}
-                  {open && left && <span className="text-ink-3/80">· 마감까지 {left}</span>}
+              {/* 모임 시각과 응답 마감을 따로 (한 줄에 두면 모임 시각이 마감처럼 읽힘) */}
+              <p className="flex gap-1.5">
+                <CalendarDays className="mt-0.5 size-4 shrink-0" />
+                <span>
+                  <b className="font-semibold text-ink-2">모임</b> {fmtDate(poll.eventAt)}
+                </span>
+              </p>
+              {open && end && (
+                <p className="flex gap-1.5">
+                  <Clock className="mt-0.5 size-4 shrink-0" />
+                  <span>
+                    <b className="font-semibold text-ink-2">{poll.stages.find((x) => x.state === "current")?.label ?? "응답"} 마감</b> {poll.deadline ? fmtDate(poll.deadline) : "모임 시작 시"}
+                    {left && <span className="text-ink-3/80"> · {left} 남음</span>}
+                  </span>
                 </p>
               )}
             </div>
@@ -195,7 +206,7 @@ export function Results({
             <Stat
               label="응답 완료"
               value={miss ? `${prog.rows.length - prog.pending.length}/${prog.rows.length}` : `${prog.rows.length - prog.pending.length}명`}
-              sub={prog.pending.length ? `마무리 전 ${prog.pending.length}명` : miss ? "전원 응답 완료 🎉" : "명단 미지정"}
+              sub={prog.pending.length ? `${open ? "마무리 전" : "응답 못 함"} ${prog.pending.length}명` : miss ? "전원 응답 완료 🎉" : "명단 미지정"}
             />
           </div>
 
@@ -466,7 +477,7 @@ function ProgressTable({ poll, isAdmin, onProxy }: { poll: PollDetail; isAdmin: 
   const grid = { gridTemplateColumns: `minmax(4.5rem,1.1fr) repeat(${cols.length}, minmax(3.2rem,1fr))` };
   return (
     <section className="mb-8">
-      <SectionTitle right={pending.length ? `마무리 전 ${pending.length}명` : "모두 완료"}>
+      <SectionTitle right={pending.length ? `${poll.status === "open" ? "마무리 전" : "응답 못 함"} ${pending.length}명` : "모두 완료"}>
         <Users className="mr-1 inline size-4 -translate-y-px text-ink-3" />
         사람별 응답 현황
       </SectionTitle>
@@ -643,6 +654,10 @@ function Bars({
   const leader = t[0]?.count ? t[0].option : null;
   // 메뉴는 1등을 뽑는 투표가 아니라 개인별 주문 집계
   const isMenu = q.topic === "menu";
+  // 메뉴는 선택지가 많아 주문 없는 메뉴는 접어 둠 (실제 주문이 한눈에 보이게)
+  const [showZero, setShowZero] = useState(false);
+  const zeros = isMenu ? t.filter((x) => x.count === 0).length : 0;
+  const list = isMenu && !showZero ? t.filter((x) => x.count > 0) : t;
 
   return (
     <section>
@@ -650,7 +665,10 @@ function Bars({
         {isMenu ? "메뉴 주문 집계" : q.title}
       </SectionTitle>
       <div className="space-y-2">
-        {t.map((x, i) => {
+        {isMenu && list.length === 0 && !showZero && (
+          <p className="rounded-2xl border border-dashed border-line py-6 text-center text-[13.5px] text-ink-3">아직 메뉴를 고른 사람이 없어요</p>
+        )}
+        {list.map((x, i) => {
           const isDecided = decided === x.option;
           const top = !isMenu && !decided && x.count > 0 && x.count === t[0].count;
           const strong = isDecided || top;
@@ -714,6 +732,12 @@ function Bars({
           );
         })}
       </div>
+
+      {zeros > 0 && (
+        <button type="button" onClick={() => setShowZero((v) => !v)} className="mt-2 text-[13px] font-semibold text-ink-2 underline underline-offset-4">
+          {showZero ? "주문 없는 메뉴 접기" : `주문 없는 메뉴 ${zeros}개 보기`}
+        </button>
+      )}
 
       {isAdmin && !isMenu && (
         <AnimatePresence initial={false} mode="wait">
@@ -975,7 +999,7 @@ function MenuStage({
           ))}
         </div>
       )}
-      <p className="mt-2 text-[12px] text-ink-3">다른 식당으로 정하려면 결과 탭에서 확정하세요. 식당 투표는 이 순간 마감돼요.</p>
+      <p className="mt-2 text-[12px] text-ink-3">버튼을 누르면 식당 투표는 바로 끝나고 메뉴 투표가 시작돼요. 1위가 아닌 식당으로 정하려면 결과 탭에서 확정하세요.</p>
     </div>
   );
 }

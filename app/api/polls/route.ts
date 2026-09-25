@@ -11,7 +11,7 @@ export async function GET() {
   // 마감이 지난 식당 투표는 목록에서도 메뉴 투표 단계로 보이게
   for (const row of rows) {
     const p = row.poll;
-    if (p.menuLater && (p.round ?? 1) === 1 && p.deadline && Date.parse(p.deadline) <= Date.now()) {
+    if (p.menuLater && !p.autoTried && !p.closed && (p.round ?? 1) === 1 && p.deadline && Date.parse(p.deadline) <= Date.now()) {
       if (autoAdvance(p, await store.getResponses(p.id))) await store.savePoll(p);
     }
   }

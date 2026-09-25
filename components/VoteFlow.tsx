@@ -78,7 +78,7 @@ export function VoteFlow({
 
   // 단계 이동줄: 확정된 질문(예: 식당)은 잠긴 완료 단계로 함께 표시
   const stepLabel = (q: Question) =>
-    q.kind === "attendance" ? "참석" : q.kind === "text" ? "요청사항" : q.topic === "place" ? "식당" : q.topic === "menu" ? "메뉴" : q.title.length > 7 ? `${q.title.slice(0, 6)}…` : q.title;
+    q.kind === "attendance" ? "참석" : q.kind === "text" ? (poll.template === "meal" ? "요청사항" : "의견") : q.topic === "place" ? "식당" : q.topic === "menu" ? "메뉴" : q.title.length > 7 ? `${q.title.slice(0, 6)}…` : q.title;
   const answered = (q: Question) => {
     const v = answers[q.id];
     return Array.isArray(v) ? v.length > 0 : v !== undefined && v !== "";
@@ -216,10 +216,10 @@ export function VoteFlow({
           >
             {step.key === "name" ? (
               <>
-                {poll.note && <NoteCard note={poll.note} className="mb-5" />}
+                {poll.note && <NoteCard note={poll.note} className="mb-5" compact />}
                 {myOwn ? (
                   <>
-                    <StepHead eyebrow={poll.title} title={`${myOwn.name}님, 응답을 이어서 할게요`} sub="이전 응답이 채워져 있어요. 바꿀 부분만 수정하세요." />
+                    <StepHead title={`${myOwn.name}님, 응답을 이어서 할게요`} sub="이전 응답이 채워져 있어요. 바꿀 부분만 수정하세요." />
                     <div className="flex items-center gap-2 rounded-2xl bg-accent-soft px-4 py-3.5 text-[15px] font-semibold text-accent">
                       <UserRound className="size-5 shrink-0" /> {myOwn.name}
                       <Lock className="ml-auto size-4 shrink-0 opacity-70" strokeWidth={2.6} aria-label="이름 고정" />
@@ -231,7 +231,6 @@ export function VoteFlow({
                 ) : (
                   <>
                 <StepHead
-                  eyebrow={poll.title}
                   title={proxy ? "누구의 응답을 입력할까요?" : poll.roster?.length && !typing ? "본인 이름을 선택하세요" : "이름을 알려주세요"}
                   sub={proxy ? "이미 응답한 사람을 고르면 그 응답을 수정해요. 본인도 나중에 직접 수정할 수 있어요." : "같은 이름으로 다시 응답하면 기존 응답이 수정돼요."}
                 />
@@ -385,7 +384,7 @@ export function VoteFlow({
                     ))}
                   </div>
                 )}
-                <QuestionView q={step.q} options={allowedOptions(poll, step.q, answers)} placeInfo={poll.placeInfo} answer={answers[step.q.id]} onPick={pick} onText={(v) => setAnswers({ ...answers, [step.q.id]: v })} index={idx} total={qCount} />
+                <QuestionView q={step.q} options={allowedOptions(poll, step.q, answers)} placeInfo={poll.placeInfo} meal={poll.template === "meal"} answer={answers[step.q.id]} onPick={pick} onText={(v) => setAnswers({ ...answers, [step.q.id]: v })} index={idx} total={qCount} />
               </>
             )}
           </motion.div>
@@ -459,10 +458,11 @@ function PlaceLine({ p, on }: { p: PollDetail["placeInfo"][string]; on: boolean 
 
 function StepHead({ eyebrow, title, sub }: { eyebrow?: string; title: string; sub?: string }) {
   return (
-    <div className="mb-6">
+    <div className="mb-6 [@media(max-height:700px)]:mb-4">
       {eyebrow && <p className="mb-1.5 text-[13px] font-semibold text-ink-3">{eyebrow}</p>}
-      <h2 className="text-[24px] font-bold leading-tight tracking-tight">{title}</h2>
-      {sub && <p className="mt-2 text-[14px] leading-relaxed text-ink-3">{sub}</p>}
+      <h2 className="text-[24px] font-bold leading-tight tracking-tight [@media(max-height:700px)]:text-[21px]">{title}</h2>
+      {/* 작은 화면에서는 보조 설명을 숨겨 선택지가 한 화면에 들어오게 */}
+      {sub && <p className="mt-2 text-[14px] leading-relaxed text-ink-3 [@media(max-height:700px)]:hidden">{sub}</p>}
     </div>
   );
 }
@@ -477,6 +477,7 @@ function QuestionView({
   q,
   options,
   placeInfo,
+  meal,
   answer,
   onPick,
   onText,
@@ -486,6 +487,7 @@ function QuestionView({
   q: Question;
   options: string[];
   placeInfo: PollDetail["placeInfo"];
+  meal?: boolean;
   answer: Answer | undefined;
   onPick: (q: Question, v: string) => void;
   onText: (v: string) => void;
@@ -534,7 +536,7 @@ function QuestionView({
           onChange={(e) => onText(e.target.value)}
           maxLength={300}
           rows={4}
-          placeholder="예) 갑각류 알레르기가 있어요 / 30분 정도 늦어요"
+          placeholder={meal ? "예) 갑각류 알레르기가 있어요 / 30분 정도 늦어요" : "자유롭게 적어주세요"}
           className={textareaCls}
         />
       </>

@@ -44,6 +44,8 @@ export interface Place {
   prev?: PlaceSnap;
   /** 사이트 관리자가 목록에서 숨김(삭제) */
   hidden?: boolean;
+  /** 기본 데이터(시드)의 메뉴를 보강한 시각: 이보다 오래된 사용자 편집본보다 시드 메뉴를 우선 */
+  refreshedAt?: number;
 }
 
 /** 투표에 저장되는 식당 정보 스냅샷 (이후 공용 목록이 바뀌어도 투표 내용은 유지) */
