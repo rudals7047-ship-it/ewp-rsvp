@@ -29,6 +29,7 @@ import {
   copyText,
   fmtDate,
   headcount,
+  josa,
   keys,
   local,
   missing,
@@ -105,12 +106,12 @@ export function Results({
 
   // 식당 확정 + 메뉴 투표 시작 (한 번에)
   async function startMenu(place: string) {
-    const ok = await admin({ action: "startMenu", option: place }, `'${place}'(으)로 확정하고 메뉴 투표를 시작했어요`);
+    const ok = await admin({ action: "startMenu", option: place }, `'${place}'${josa(place, "으로")} 확정하고 메뉴 투표를 시작했어요`);
     if (ok) onGoto("status");
   }
   // 메뉴 정보가 없는 식당: 확정만 하고 관리 탭에서 메뉴 입력
   async function decideOnly(qid: string, place: string) {
-    const ok = await admin({ action: "decide", questionId: qid, option: place }, `'${place}'(으)로 확정했어요. 메뉴를 입력해 주세요`);
+    const ok = await admin({ action: "decide", questionId: qid, option: place }, `'${place}'${josa(place, "으로")} 확정했어요. 메뉴를 입력해 주세요`);
     if (ok) onGoto("admin");
   }
 
@@ -208,7 +209,7 @@ export function Results({
                     isAdmin={isAdmin}
                     busy={busy !== null}
                     onDecide={(option) =>
-                      admin({ action: "decide", questionId: q.id, option }, option ? `'${option}'(으)로 확정했어요` : "확정을 취소했어요")
+                      admin({ action: "decide", questionId: q.id, option }, option ? `'${option}'${josa(option, "으로")} 확정했어요` : "확정을 취소했어요")
                     }
                   />
                 ),
@@ -919,7 +920,7 @@ function MenuStage({
             const r = await shareLink(
               pollUrl(poll.id),
               poll.title,
-              `🍽 식당이 '${place ?? ""}'(으)로 정해졌어요! 이제 메뉴를 골라주세요 (같은 링크)\n${pollUrl(poll.id)}\n🔒 참여 PIN은 담당자에게 확인하세요`,
+              `🍽 식당이 '${place ?? ""}'${josa(place ?? "", "으로")} 정해졌어요! 이제 메뉴를 골라주세요 (같은 링크)\n${pollUrl(poll.id)}\n🔒 참여 PIN은 담당자에게 확인하세요`,
             );
             if (r === "copied") toast("안내 문구를 복사했어요");
             track("menu-announce");
@@ -938,7 +939,7 @@ function MenuStage({
   const top = max > 0 ? rank.filter((t) => t.count === max) : [];
   const hasMenus = (o: string) => !!poll.placeInfo[o]?.menus.length;
   const closed = poll.status !== "open";
-  const label = (o: string) => (hasMenus(o) ? `'${o}'(으)로 메뉴 투표 시작` : `'${o}' 확정하고 메뉴 입력`);
+  const label = (o: string) => (hasMenus(o) ? `'${o}'${josa(o, "으로")} 메뉴 투표 시작` : `'${o}' 확정하고 메뉴 입력`);
   const act = (o: string) => (hasMenus(o) ? onStart(o) : onDecideOnly(placeQ.id, o));
 
   return (

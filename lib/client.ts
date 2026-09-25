@@ -380,3 +380,12 @@ export function openExternal(url: string) {
   if (/\bLine\//i.test(ua)) url += `${url.includes("?") ? "&" : "?"}openExternalBrowser=1`;
   window.open(url, "_blank", "noopener");
 }
+
+/** 받침에 맞는 조사 (식당은/메뉴는, 미가로/댓잎장어로/수림복국으로). 한글이 아니면 (으)로 형태 */
+export function josa(word: string, pair: "은는" | "이가" | "을를" | "으로") {
+  const c = word.trim().slice(-1).charCodeAt(0);
+  if (!(c >= 0xac00 && c <= 0xd7a3)) return pair === "으로" ? "(으)로" : `${pair[0]}(${pair[1]})`;
+  const jong = (c - 0xac00) % 28;
+  if (pair === "으로") return jong === 0 || jong === 8 ? "로" : "으로";
+  return jong ? pair[0] : pair[1];
+}

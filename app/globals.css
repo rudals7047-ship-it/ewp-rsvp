@@ -115,3 +115,9 @@
   box-shadow: 0 0 0 2px var(--color-danger), 0 0 0 6px rgb(217 45 32 / 0.15) !important;
   border-radius: 16px;
 }
+
+/* 확정돼 더 이상 선택할 수 없는 단계: 빗살 무늬 */
+.hatch {
+  background-image: repeating-linear-gradient(135deg, rgb(15 23 42 / 0.08) 0 3px, transparent 3px 7px);
+  box-shadow: inset 0 0 0 1px rgb(15 23 42 / 0.08);
+}

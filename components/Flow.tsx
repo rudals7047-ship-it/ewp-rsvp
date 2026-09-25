@@ -1,9 +1,10 @@
 "use client";
 
-import { Check, Crown, Eye, UserRound } from "lucide-react";
+import { Check, Crown, Eye, Lock, UserRound } from "lucide-react";
 import { Fragment, useEffect, useRef } from "react";
 import type { Stage } from "@/lib/types";
-import { cx } from "./ui";
+import { josa } from "@/lib/client";
+import { cx, toast } from "./ui";
 
 /** 투표 전체 진행 단계 (예: ✓식당 투표 → ●메뉴 선택 → 마감). 얇은 한 줄 */
 export function StageBar({ stages, className }: { stages: Stage[]; className?: string }) {
@@ -12,19 +13,36 @@ export function StageBar({ stages, className }: { stages: Stage[]; className?: s
       {stages.map((s, i) => (
         <Fragment key={i}>
           {i > 0 && <li aria-hidden className={cx("h-px w-3 shrink-0", s.state === "todo" ? "bg-ink/15" : "bg-ink/40")} />}
-          <li
-            aria-current={s.state === "current" ? "step" : undefined}
-            className={cx(
-              "inline-flex shrink-0 items-center gap-1 rounded-full px-2.5 py-1",
-              s.state === "done" && "px-1.5 text-ink-3",
-              s.state === "current" && "bg-ink text-white",
-              s.state === "todo" && "border border-dashed border-ink/20 text-ink-3",
-            )}
-          >
-            {s.state === "done" && <Check className="size-3 text-ink-3" strokeWidth={3.2} />}
-            {s.state === "current" && <span className="live-dot relative size-1.5 rounded-full bg-[#34d399] text-[#34d399]" />}
-            {s.label}
-            {s.detail && <span className="max-w-[9rem] truncate font-medium opacity-80">· {s.detail}</span>}
+          <li className="shrink-0">
+            <button
+              type="button"
+              aria-current={s.state === "current" ? "step" : undefined}
+              aria-disabled={s.state === "done" || undefined}
+              onClick={() =>
+                toast(
+                  s.state === "done"
+                    ? s.label === "마감"
+                      ? "투표가 마감됐어요"
+                      : s.detail
+                        ? `${s.label}: '${s.detail}'${josa(s.detail, "으로")} 확정돼 더 이상 선택할 수 없어요`
+                        : `'${s.label}' 단계는 끝나서 더 이상 선택할 수 없어요`
+                    : s.state === "current"
+                      ? `지금은 '${s.label}' 단계예요`
+                      : `'${s.label}'${josa(s.label, "은는")} 앞 단계가 끝나면 열려요`,
+                )
+              }
+              className={cx(
+                "inline-flex items-center gap-1 rounded-full px-2.5 py-1 transition active:scale-95",
+                s.state === "done" && "hatch text-ink-3",
+                s.state === "current" && "bg-ink text-white",
+                s.state === "todo" && "border border-dashed border-ink/20 text-ink-3",
+              )}
+            >
+              {s.state === "done" && <Lock className="size-3" strokeWidth={2.6} />}
+              {s.state === "current" && <span className="live-dot relative size-1.5 rounded-full bg-[#34d399] text-[#34d399]" />}
+              {s.label}
+              {s.detail && <span className="max-w-[9rem] truncate font-medium opacity-80">· {s.detail}</span>}
+            </button>
           </li>
         </Fragment>
       ))}
@@ -64,7 +82,7 @@ export function StepNav({
   reached,
   onJump,
 }: {
-  steps: { label: string; locked?: boolean; done?: boolean }[];
+  steps: { label: string; locked?: boolean; done?: boolean; note?: string }[];
   current: number;
   reached: number;
   onJump: (i: number) => void;
@@ -81,23 +99,26 @@ export function StepNav({
       {steps.map((s, i) => {
         const done = !!s.done;
         const can = !s.locked && i !== current && (i <= reached || done);
+        // 확정된 단계는 눌러도 이동하지 않고 안내만
+        const tap = s.locked ? () => toast(s.note ?? `${s.label}${josa(s.label, "은는")} 확정돼 더 이상 바꿀 수 없어요`) : () => onJump(i);
         return (
           <Fragment key={i}>
             {i > 0 && <span aria-hidden className={cx("h-px w-2.5 shrink-0", i <= reached ? "bg-ink/40" : "bg-ink/12")} />}
             <button
               type="button"
-              disabled={!can}
-              onClick={() => onJump(i)}
+              disabled={!can && !s.locked}
+              aria-disabled={s.locked || undefined}
+              onClick={tap}
               aria-current={i === current ? "step" : undefined}
               className={cx(
                 "inline-flex h-7 shrink-0 items-center gap-1 rounded-full px-2.5 text-[12px] font-semibold transition",
                 i === current && "bg-ink text-white",
-                i !== current && s.locked && "px-1.5 text-ink-3",
+                i !== current && s.locked && "hatch text-ink-3 active:scale-95",
                 i !== current && !s.locked && done && "bg-ink/[0.06] text-ink-2 hover:bg-ink/[0.1] active:scale-95",
                 i !== current && !s.locked && !done && "text-ink-3",
               )}
             >
-              {(s.locked || (done && i !== current)) && <Check className="size-3" strokeWidth={3.2} />}
+              {s.locked ? <Lock className="size-3" strokeWidth={2.6} /> : done && i !== current && <Check className="size-3" strokeWidth={3.2} />}
               {s.label}
             </button>
           </Fragment>

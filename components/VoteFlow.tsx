@@ -3,7 +3,7 @@
 import { AnimatePresence, motion } from "motion/react";
 import { Check, ChevronLeft, CircleHelp, Lock, UserRound, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ApiError, api, keys, local, openExternal, vibrate } from "@/lib/client";
+import { ApiError, api, josa, keys, local, openExternal, vibrate } from "@/lib/client";
 import { menuLabel, naverUrl } from "@/lib/places";
 import { allowedOptions, nameKey, pendingQuestions, visibleQuestions } from "@/lib/poll";
 import type { Answer, PollDetail, Question } from "@/lib/types";
@@ -83,17 +83,23 @@ export function VoteFlow({
     const v = answers[q.id];
     return Array.isArray(v) ? v.length > 0 : v !== undefined && v !== "";
   };
-  const navEntries: { label: string; locked?: boolean; done?: boolean; stepIndex: number }[] = [
+  const navEntries: { label: string; locked?: boolean; done?: boolean; note?: string; stepIndex: number }[] = [
     { label: "이름", stepIndex: 0, done: !!name.trim() && idx > 0 },
   ];
   for (const q of poll.questions) {
-    if (poll.decisions[q.id]) navEntries.push({ label: stepLabel(q), locked: true, stepIndex: -1 });
+    if (poll.decisions[q.id])
+      navEntries.push({
+        label: stepLabel(q),
+        locked: true,
+        note: `${stepLabel(q)}${josa(stepLabel(q), "은는")} '${poll.decisions[q.id]}'${josa(poll.decisions[q.id], "으로")} 확정돼 더 이상 바꿀 수 없어요. 변경은 관리자에게 요청하세요`,
+        stepIndex: -1,
+      });
     else {
       const si = steps.findIndex((st) => st.key === "q" && st.q.id === q.id);
       if (si > 0) navEntries.push({ label: stepLabel(q), stepIndex: si, done: answered(q) });
     }
   }
-  const navItems = navEntries.map(({ label, locked, done }) => ({ label, locked, done }));
+  const navItems = navEntries.map(({ label, locked, done, note }) => ({ label, locked, done, note }));
   const navCurrent = navEntries.findIndex((e) => e.stepIndex === Math.min(idx, steps.length - 1));
   const navReached = navEntries.reduce((m, e, i) => (e.stepIndex >= 0 && e.stepIndex <= Math.min(reached, steps.length - 1) ? i : m), 0);
   function jumpNav(i: number) {

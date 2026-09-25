@@ -59,7 +59,8 @@ export function menuLabel(m: PlaceMenu) {
 
 /** 선택지 라벨 "이름 (가격)" → 메뉴 */
 export function parseLabel(label: string): PlaceMenu {
-  const m = /^(.*?)\s*\(([^()]+)\)$/.exec(label.trim());
+  // 괄호 안에 숫자가 있을 때만 가격으로 봄 (예: "짬뽕(곱빼기)"는 이름 그대로)
+  const m = /^(.*?)\s*\(([^()]*\d[^()]*)\)$/.exec(label.trim());
   const name = (m ? m[1] : label).trim().slice(0, PLACE_LIMITS.menuName);
   const price = m?.[2].trim().slice(0, PLACE_LIMITS.price);
   return price ? { name, price } : { name };
@@ -101,8 +102,8 @@ export function searchPlaces(places: Place[], query: string) {
       else if (names.some((n) => chosung(n).includes(q))) s = 2;
     } else if (names.some((n) => n.startsWith(q))) s = 4;
     else if (names.some((n) => n.includes(q))) s = 3;
-    else if (clean(p.category).includes(q)) s = 2;
-    else if (p.menus.some((m) => clean(m.name).includes(q))) s = 1;
+    else if (clean(p.category ?? "").includes(q)) s = 2;
+    else if ((p.menus ?? []).some((m) => clean(m.name).includes(q))) s = 1;
     if (s) scored.push({ p, s });
   }
   return scored.sort((a, b) => b.s - a.s || b.p.uses - a.p.uses).map((x) => x.p);
