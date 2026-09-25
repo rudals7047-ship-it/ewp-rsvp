@@ -1,13 +1,13 @@
 "use client";
 
-import { Check, Crown, Eye, Lock, UserRound } from "lucide-react";
+import { Check, Crown, Eye, Lock, Megaphone, UserRound } from "lucide-react";
 import { Fragment, useEffect, useRef } from "react";
 import type { Stage } from "@/lib/types";
 import { josa } from "@/lib/client";
 import { cx, toast } from "./ui";
 
 /** 투표 전체 진행 단계 (예: ✓식당 투표 → ●메뉴 선택 → 마감). 얇은 한 줄 */
-export function StageBar({ stages, className }: { stages: Stage[]; className?: string }) {
+export function StageBar({ stages, className, onTap }: { stages: Stage[]; className?: string; onTap?: (s: Stage, i: number) => void }) {
   return (
     <ol aria-label="투표 진행 단계" className={cx("no-scrollbar flex items-center gap-1 overflow-x-auto text-[12px] font-semibold", className)}>
       {stages.map((s, i) => (
@@ -18,19 +18,7 @@ export function StageBar({ stages, className }: { stages: Stage[]; className?: s
               type="button"
               aria-current={s.state === "current" ? "step" : undefined}
               aria-disabled={s.state === "done" || undefined}
-              onClick={() =>
-                toast(
-                  s.state === "done"
-                    ? s.label === "마감"
-                      ? "투표가 마감됐어요"
-                      : s.detail
-                        ? `${s.label}: '${s.detail}'${josa(s.detail, "으로")} 확정돼 더 이상 선택할 수 없어요`
-                        : `'${s.label}' 단계는 끝나서 더 이상 선택할 수 없어요`
-                    : s.state === "current"
-                      ? `지금은 '${s.label}' 단계예요`
-                      : `'${s.label}'${josa(s.label, "은는")} 앞 단계가 끝나면 열려요`,
-                )
-              }
+              onClick={() => (onTap ? onTap(s, i) : toast(stageText(s, stages, i)))}
               className={cx(
                 "inline-flex items-center gap-1 rounded-full px-2.5 py-1 transition active:scale-95",
                 s.state === "done" && "hatch text-ink-3",
@@ -48,6 +36,17 @@ export function StageBar({ stages, className }: { stages: Stage[]; className?: s
       ))}
     </ol>
   );
+}
+
+/** 진행 단계를 눌렀을 때 기본 안내 */
+export function stageText(s: Stage, stages: Stage[], i: number) {
+  if (s.state === "done") {
+    if (s.label === "마감") return "투표가 마감됐어요";
+    return s.detail ? `${s.label}: '${s.detail}'${josa(s.detail, "으로")} 확정돼 더 이상 선택할 수 없어요` : `'${s.label}' 단계는 끝나서 더 이상 선택할 수 없어요`;
+  }
+  if (s.state === "current") return `지금은 '${s.label}' 단계예요`;
+  const prev = [...stages.slice(0, i)].reverse().find((x) => x.state !== "done") ?? stages[i - 1];
+  return `${s.label}${josa(s.label, "은는")} 앞 단계${prev ? `(${prev.label})` : ""}가 완료되어야 열려요`;
 }
 
 /** 지금 화면이 누구 명의인지 */
@@ -100,14 +99,19 @@ export function StepNav({
         const done = !!s.done;
         const can = !s.locked && i !== current && (i <= reached || done);
         // 확정된 단계는 눌러도 이동하지 않고 안내만
-        const tap = s.locked ? () => toast(s.note ?? `${s.label}${josa(s.label, "은는")} 확정돼 더 이상 바꿀 수 없어요`) : () => onJump(i);
+        const blocker = steps.slice(0, i).find((x) => !x.locked && !x.done) ?? steps[current];
+        const tap = s.locked
+          ? () => toast(s.note ?? `${s.label}${josa(s.label, "은는")} 확정돼 더 이상 바꿀 수 없어요`)
+          : can
+            ? () => onJump(i)
+            : () => toast(`'${blocker?.label ?? "앞"}' 단계를 먼저 마쳐야 '${s.label}' 단계로 넘어갈 수 있어요`);
         return (
           <Fragment key={i}>
             {i > 0 && <span aria-hidden className={cx("h-px w-2.5 shrink-0", i <= reached ? "bg-ink/40" : "bg-ink/12")} />}
             <button
               type="button"
-              disabled={!can && !s.locked}
-              aria-disabled={s.locked || undefined}
+              disabled={i === current}
+              aria-disabled={s.locked || !can || undefined}
               onClick={tap}
               aria-current={i === current ? "step" : undefined}
               className={cx(
@@ -125,5 +129,18 @@ export function StepNav({
         );
       })}
     </nav>
+  );
+}
+
+/** 만든 사람이 남긴 안내 메모: 눈에 띄게 */
+export function NoteCard({ note, className }: { note: string; className?: string }) {
+  return (
+    <div className={cx("flex gap-2.5 rounded-2xl border border-[#f0d9a8] bg-[#fdf5e3] px-4 py-3", className)}>
+      <Megaphone className="mt-0.5 size-4 shrink-0 text-[#b7791f]" />
+      <div className="min-w-0">
+        <p className="text-[12px] font-bold text-[#8a5a12]">만든 사람의 안내</p>
+        <p className="mt-0.5 whitespace-pre-line break-keep text-[14px] font-medium leading-relaxed text-ink">{note}</p>
+      </div>
+    </div>
   );
 }

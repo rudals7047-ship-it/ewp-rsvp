@@ -10,12 +10,20 @@ export async function getPlaces(region?: Region): Promise<Place[]> {
   const map = new Map<string, Place>(SEED_PLACES.map((p) => [p.id, p]));
   for (const e of edits) map.set(e.id, { ...map.get(e.id), ...e, uses: map.get(e.id)?.uses ?? 0 });
   return [...map.values()]
-    .filter((p) => !region || p.region === region)
+    .filter((p) => (!region || p.region === region) && !p.hidden)
     // 빠진 칸이 있어도 화면·검색에서 오류 나지 않도록 기본값 보정
     .map((p) => ({ ...p, category: p.category ?? "", address: p.address ?? "", phone: p.phone ?? "", menus: p.menus ?? [], uses: (p.uses ?? 0) + (uses[p.id] ?? 0) }));
 }
 
 export async function getPlace(id: string) {
   return (await getPlaces()).find((p) => p.id === id) ?? null;
+}
+
+/** 숨김 포함 (사이트 관리자용) */
+export async function getPlaceAny(id: string) {
+  const store = getStore();
+  const e = (await store.listPlaceEdits()).find((x) => x.id === id);
+  const seed = SEED_PLACES.find((x) => x.id === id);
+  return e || seed ? ({ ...seed, ...e } as Place) : null;
 }
 

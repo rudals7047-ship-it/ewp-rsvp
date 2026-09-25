@@ -26,6 +26,7 @@ import { useState } from "react";
 import {
   ApiError,
   api,
+  canAdmin,
   copyText,
   fmtDate,
   headcount,
@@ -49,7 +50,7 @@ import { LIMITS, nameKey } from "@/lib/poll";
 import type { PollDetail, Question } from "@/lib/types";
 import { ATTEND } from "@/lib/types";
 import { ChipsInput } from "./ChipsInput";
-import { IdentityBar, StageBar } from "./Flow";
+import { IdentityBar, NoteCard, StageBar } from "./Flow";
 import { MenuSuggestions, PlaceInfo, SaveMenus } from "./Places";
 import { SheetBody, SheetFooter } from "./Sheet";
 import { Button, Toggle, cx, flash, inputCls, reveal, toast } from "./ui";
@@ -76,7 +77,7 @@ export function Results({
   onDeleted: () => void;
 }) {
   const [adminTick, setAdminTick] = useState(0);
-  const isAdmin = adminTick >= 0 && !!local.get(keys.admin(poll.id));
+  const isAdmin = adminTick >= 0 && canAdmin(poll.id);
   const open = poll.status === "open";
   const end = poll.deadline ?? poll.eventAt;
   const left = end ? relUntil(end) : null;
@@ -135,7 +136,8 @@ export function Results({
     <SheetBody className="pb-5 pt-3">
       {view === "status" && (
         <>
-          {(poll.eventAt || poll.note) && (
+          {poll.note && <NoteCard note={poll.note} className="mb-3" />}
+          {poll.eventAt && (
             <div className="mb-3 space-y-1 text-[13.5px] text-ink-3">
               {poll.eventAt && (
                 <p className="flex items-center gap-1.5">
@@ -143,7 +145,6 @@ export function Results({
                   {open && left && <span className="text-ink-3/80">· 마감까지 {left}</span>}
                 </p>
               )}
-              {poll.note && <p className="whitespace-pre-line text-ink-2">{poll.note}</p>}
             </div>
           )}
 
@@ -156,6 +157,18 @@ export function Results({
             ))}
 
           {isAdmin && <MenuStage poll={poll} busy={busy !== null} onStart={startMenu} onDecideOnly={decideOnly} />}
+
+          {/* 전원 응답 완료 → 관리자에게 마감 제안 */}
+          {isAdmin && open && prog.rows.length > 0 && prog.pending.length === 0 && !hasPendingMenuStart(poll) && (
+            <div className="mb-3 flex items-center gap-3 rounded-2xl bg-accent-soft px-4 py-3">
+              <span className="min-w-0 flex-1 text-[13.5px] font-medium leading-snug text-[#0b6b51]">
+                <b>🎉 모두 응답했어요.</b> 결과를 확정했다면 투표를 마감하세요.
+              </span>
+              <Button size="md" className="h-10 shrink-0 px-3.5 text-[13.5px]" disabled={busy !== null} onClick={() => admin({ action: "close" }, "투표를 마감했어요")}>
+                지금 마감
+              </Button>
+            </div>
+          )}
 
           {menuPending && (
             <button
@@ -268,12 +281,6 @@ export function Results({
                 }}
               />
             )}
-            {!menuPending && poll.template === "meal" && poll.questions.some((q) => q.topic === "place") && !decidedList.length && (
-              <p className="rounded-2xl bg-ink/[0.04] px-4 py-3 text-[13px] leading-relaxed text-ink-2">
-                식당 투표가 모이면 <b>결과</b> 탭에서 식당을 <b>확정</b>하세요. 확정하면 여기서 메뉴 투표를 열 수 있어요.
-              </p>
-            )}
-
             <div className="rounded-2xl border border-line p-4">
               {poll.responses.length > 0 && <ResponseManager poll={poll} onChange={onChange} />}
               {confirmDelete ? (
@@ -291,7 +298,7 @@ export function Results({
               ) : (
                 <div className="grid grid-cols-2 gap-2">
                   {open ? (
-                    <Button variant="secondary" size="md" disabled={busy !== null} onClick={() => admin({ action: "close" }, "투표를 마감했어요")}>
+                    <Button id="close-poll" variant="secondary" size="md" disabled={busy !== null} onClick={() => admin({ action: "close" }, "투표를 마감했어요")}>
                       <Lock className="size-4" /> 지금 마감
                     </Button>
                   ) : (
@@ -998,4 +1005,9 @@ function PlaceLinks({ p, region, dark }: { p: PollDetail["placeInfo"][string]; r
       </a>
     </div>
   );
+}
+
+/** 식당 투표 뒤 메뉴 투표를 아직 안 연 상태인지 (이때는 마감보다 메뉴 시작이 먼저) */
+function hasPendingMenuStart(poll: PollDetail) {
+  return poll.template === "meal" && !!poll.menuLater && !poll.questions.some((q) => q.topic === "menu");
 }

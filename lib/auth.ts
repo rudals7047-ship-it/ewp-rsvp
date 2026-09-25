@@ -142,3 +142,38 @@ export function clientIp(req: Request) {
   const fwd = req.headers.get("x-forwarded-for");
   return (fwd?.split(",")[0] || req.headers.get("x-real-ip") || "local").trim();
 }
+
+/* ---------- 사이트 관리자(마스터) ---------- */
+// MASTER_KEY 환경변수(8자 이상)를 설정해야만 켜짐. 저장소에는 절대 넣지 않음
+const MASTER_MS = 1000 * 60 * 60 * 2;
+const masterKey = () => process.env.MASTER_KEY ?? "";
+
+export function masterEnabled() {
+  return masterKey().length >= 8;
+}
+
+export async function checkMasterKey(key: string) {
+  if (!masterEnabled() || !key) return false;
+  const k = masterKey();
+  return safeEqual(createHmac("sha256", k).update(key).digest("base64url"), createHmac("sha256", k).update(k).digest("base64url"));
+}
+
+/** 마스터 세션 토큰 ("m.<만료>.<서명>"). 키를 바꾸면 기존 세션은 모두 무효 */
+export async function issueMaster() {
+  const exp = Date.now() + MASTER_MS;
+  return `m.${exp}.${await hmac(`master:${exp}:${createHmac("sha256", masterKey()).update("id").digest("hex").slice(0, 16)}`)}`;
+}
+
+export async function verifyMaster(req: Request) {
+  const t = req.headers.get("x-master-token");
+  if (!masterEnabled() || !t?.startsWith("m.")) return false;
+  const [, expStr, sig] = t.split(".");
+  const exp = Number(expStr);
+  if (!exp || !sig || exp < Date.now()) return false;
+  return hmacMatches(`master:${exp}:${createHmac("sha256", masterKey()).update("id").digest("hex").slice(0, 16)}`, sig);
+}
+
+/** 투표 관리자 또는 사이트 관리자 */
+export async function isPollAdmin(req: Request, poll: Poll) {
+  return (await verifyAdmin(poll, req.headers.get("x-admin-token"))) || (await verifyMaster(req));
+}

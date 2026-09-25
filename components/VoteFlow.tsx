@@ -3,12 +3,12 @@
 import { AnimatePresence, motion } from "motion/react";
 import { Check, ChevronLeft, CircleHelp, Lock, UserRound, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ApiError, api, josa, keys, local, openExternal, vibrate } from "@/lib/client";
+import { ApiError, api, josa, keys, local, openExternal, progressTable, vibrate } from "@/lib/client";
 import { menuLabel, naverUrl } from "@/lib/places";
 import { allowedOptions, nameKey, pendingQuestions, visibleQuestions } from "@/lib/poll";
 import type { Answer, PollDetail, Question } from "@/lib/types";
 import { ATTEND } from "@/lib/types";
-import { IdentityBar, StepNav } from "./Flow";
+import { IdentityBar, NoteCard, StepNav } from "./Flow";
 import { PlaceInfo } from "./Places";
 import { SheetBody, SheetFooter } from "./Sheet";
 import { Button, IconButton, cx, flash, inputCls, textareaCls, toast } from "./ui";
@@ -101,11 +101,22 @@ export function VoteFlow({
   }
   const navItems = navEntries.map(({ label, locked, done, note }) => ({ label, locked, done, note }));
   const navCurrent = navEntries.findIndex((e) => e.stepIndex === Math.min(idx, steps.length - 1));
-  const navReached = navEntries.reduce((m, e, i) => (e.stepIndex >= 0 && e.stepIndex <= Math.min(reached, steps.length - 1) ? i : m), 0);
+  // 이름이 정해졌고 앞 단계가 모두 답해진 곳까지는 상단 단계줄로 바로 이동 가능 (다시 들어왔을 때 '다음'을 여러 번 누르지 않게)
+  const nameOk = !!name.trim() && !(!proxy && existing(name)?.locked);
+  let frontier = 0;
+  for (let i = 0; i < navEntries.length; i++) {
+    frontier = i;
+    const e = navEntries[i];
+    if (!(e.locked || (i === 0 ? nameOk : e.done))) break;
+  }
+  const navReached = Math.max(
+    frontier,
+    navEntries.reduce((m, e, i) => (e.stepIndex >= 0 && e.stepIndex <= Math.min(reached, steps.length - 1) ? i : m), 0),
+  );
   function jumpNav(i: number) {
     const target = navEntries[i]?.stepIndex;
     if (target === undefined || target < 0 || target === idx) return;
-    if (target > 0 && !name.trim()) return;
+    if (target > 0 && !nameOk) return flash("name-area", "먼저 이름을 선택해 주세요");
     setDir(target > idx ? 1 : -1);
     setIdx(target);
   }
@@ -177,6 +188,7 @@ export function VoteFlow({
   const textVal = current?.kind === "text" ? ((answers[current.id] as string | undefined) ?? "") : "";
   const prev = step.key === "name" && name.trim() ? existing(name) : undefined;
   const lockedName = !proxy && !!prev?.locked;
+  const progress = useMemo(() => progressTable(poll), [poll]);
   // 한 기기 = 한 사람: 이 기기로 이미 응답했다면 그 이름으로 고정
   const myOwn = proxy ? undefined : poll.responses.find((r) => r.own);
 
@@ -204,6 +216,7 @@ export function VoteFlow({
           >
             {step.key === "name" ? (
               <>
+                {poll.note && <NoteCard note={poll.note} className="mb-5" />}
                 {myOwn ? (
                   <>
                     <StepHead eyebrow={poll.title} title={`${myOwn.name}님, 응답을 이어서 할게요`} sub="이전 응답이 채워져 있어요. 바꿀 부분만 수정하세요." />
@@ -229,32 +242,59 @@ export function VoteFlow({
                       {poll.roster.map((n) => {
                         const on = nameKey(n) === nameKey(name);
                         const r = existing(n);
-                        const done = !!r;
+                        const row = progress.rows.find((x) => nameKey(x.name) === nameKey(n));
+                        const complete = !!r && !!row && row.todo.length === 0;
+                        const lockedOther = !!r?.locked && !proxy;
                         return (
                           <button
                             key={n}
                             type="button"
                             aria-pressed={on}
+                            aria-label={`${n}${!r ? "" : complete ? " (응답 완료)" : ` (${row?.todo.join("·")} 남음)`}`}
                             onClick={() => {
                               vibrate(6);
                               chooseName(n);
                             }}
                             className={cx(
-                              "relative flex h-12 items-center justify-center gap-1 rounded-2xl border-2 px-2 text-[15px] font-semibold transition active:scale-95",
-                              on ? "border-ink bg-ink text-white" : "border-line bg-surface hover:border-ink/15",
+                              "relative flex h-14 flex-col items-center justify-center gap-1 rounded-2xl border-2 px-2 transition active:scale-95",
+                              on ? "border-ink bg-ink text-white" : complete ? "hatch border-transparent text-ink-3" : "border-line bg-surface hover:border-ink/15",
                             )}
                           >
-                            <span className="truncate">{n}</span>
-                            {done &&
-                              (r?.locked && !proxy ? (
-                                <Lock className={cx("size-3 shrink-0", on ? "text-white/70" : "text-ink-3")} strokeWidth={2.6} aria-label="다른 기기에서 응답함" />
-                              ) : (
-                                <Check className={cx("size-3.5 shrink-0", on ? "text-white/80" : "text-accent")} strokeWidth={3} aria-label="응답함" />
-                              ))}
+                            <span className="flex max-w-full items-center gap-1 text-[15px] font-semibold">
+                              <span className="truncate">{n}</span>
+                              {lockedOther && <Lock className={cx("size-3 shrink-0", on ? "text-white/70" : "text-ink-3")} strokeWidth={2.6} aria-hidden />}
+                            </span>
+                            {r && row && (
+                              <span className="flex gap-0.5" aria-hidden>
+                                {row.cells.map((c, k) => (
+                                  <span
+                                    key={k}
+                                    className={cx(
+                                      "h-1 w-3.5 rounded-full",
+                                      c.state === "done" ? (on ? "bg-white/85" : "bg-ink/45") : c.state === "skip" ? (on ? "bg-white/25" : "bg-ink/10") : on ? "bg-white/20" : "bg-[#f5c96a]",
+                                    )}
+                                  />
+                                ))}
+                              </span>
+                            )}
                           </button>
                         );
                       })}
                     </div>
+                    {poll.responses.length > 0 && (
+                      <p className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] text-ink-3">
+                        <span className="inline-flex items-center gap-1">
+                          <span className="h-1 w-3.5 rounded-full bg-ink/45" /> 응답함
+                        </span>
+                        <span className="inline-flex items-center gap-1">
+                          <span className="h-1 w-3.5 rounded-full bg-[#f5c96a]" /> 남음
+                        </span>
+                        <span>순서: {progress.cols.map((c) => c.label).join(" → ")}</span>
+                        <span className="inline-flex items-center gap-1">
+                          <span className="hatch inline-block h-3 w-5 rounded" /> 모두 완료
+                        </span>
+                      </p>
+                    )}
                     <button
                       type="button"
                       onClick={() => {

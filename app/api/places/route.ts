@@ -1,8 +1,8 @@
-import { randomId } from "@/lib/auth";
+import { randomId, verifyMaster } from "@/lib/auth";
 import { overLimit } from "@/lib/ratelimit";
 import { fail, json, readJson } from "@/lib/http";
 import { PLACE_LIMITS, type Place, parseMenus, parseSnap, regionOf, toSnap } from "@/lib/places";
-import { getPlace, getPlaces } from "@/lib/places-server";
+import { getPlace, getPlaceAny, getPlaces } from "@/lib/places-server";
 import { getStore } from "@/lib/store";
 
 export async function GET(req: Request) {
@@ -28,6 +28,15 @@ export async function POST(req: Request) {
     const menus = [...p.menus, ...add].slice(0, PLACE_LIMITS.menus);
     if (menus.length > p.menus.length) await store.savePlace({ ...p, menus, prev: toSnap(p), editedAt: Date.now(), uses: 0 });
     return json({ place: (await getPlace(p.id)) ?? p, added: menus.length - p.menus.length });
+  }
+
+  // 사이트 관리자: 목록에서 삭제(숨김). 이미 만든 투표의 식당 정보에는 영향 없음
+  if (body?.action === "hide") {
+    if (!(await verifyMaster(req))) return fail("사이트 관리자만 삭제할 수 있어요.", 403);
+    const p = typeof body.id === "string" ? await getPlaceAny(body.id) : null;
+    if (!p) return fail("식당을 찾을 수 없어요.", 404);
+    await store.savePlace({ ...p, hidden: true, editedAt: Date.now(), uses: 0 });
+    return json({ ok: true });
   }
 
   // 직전 저장본으로 되돌리기 (누가 잘못 고쳤을 때)

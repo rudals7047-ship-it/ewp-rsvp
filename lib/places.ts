@@ -3,8 +3,8 @@
 export type Region = "ulsan" | "dangjin";
 
 export const REGIONS: { id: Region; label: string; short: string; city: string }[] = [
-  { id: "ulsan", label: "울산 본사", short: "울산", city: "울산" },
-  { id: "dangjin", label: "당진 발전본부", short: "당진", city: "당진" },
+  { id: "ulsan", label: "울산", short: "울산", city: "울산" },
+  { id: "dangjin", label: "당진", short: "당진", city: "당진" },
 ];
 
 export const regionOf = (v: unknown): Region => (v === "dangjin" ? "dangjin" : "ulsan");
@@ -42,6 +42,8 @@ export interface Place {
   editedAt?: number;
   /** 직전 저장본 (잘못 고쳤을 때 되돌리기용) */
   prev?: PlaceSnap;
+  /** 사이트 관리자가 목록에서 숨김(삭제) */
+  hidden?: boolean;
 }
 
 /** 투표에 저장되는 식당 정보 스냅샷 (이후 공용 목록이 바뀌어도 투표 내용은 유지) */
