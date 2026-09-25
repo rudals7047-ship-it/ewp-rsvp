@@ -504,11 +504,6 @@ export function CreateSheet({
                       maxLength={LIMITS.note}
                       rows={3}
                       placeholder="예) 법인카드 사용, 1인 3만원 이내"
-                      // 키보드가 다 올라온 뒤 입력칸을 시트 안에서 보이는 위치로
-                      onFocus={(e) => {
-                        const el = e.currentTarget;
-                        setTimeout(() => reveal(el), 350);
-                      }}
                       className={textareaCls}
                     />
                   </Field>

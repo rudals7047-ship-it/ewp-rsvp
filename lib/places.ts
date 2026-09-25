@@ -36,8 +36,10 @@ export interface Place {
   naverId?: string;
   status: PlaceStatus;
   note?: string;
-  /** 사용 횟수 (정렬용) */
+  /** 이 사이트에서 투표에 쓰인 횟수 (정렬·표시용) */
   uses: number;
+  /** 참고용 기본 순위: 초기 자료(8월 법인카드 사용 건수). 화면에 숫자로 보여주지 않고 동률일 때 정렬에만 씀 */
+  baseUses?: number;
   /** 사용자가 수정한 시각 */
   editedAt?: number;
   /** 직전 저장본 (잘못 고쳤을 때 되돌리기용) */
@@ -76,6 +78,11 @@ export function naverUrl(p: Pick<Place, "name" | "naverId">, region?: Region) {
   return `https://m.search.naver.com/search.naver?query=${encodeURIComponent(`${p.name} ${city}`.trim())}`;
 }
 
+/** 많이 고른 순: 이 사이트에서 투표에 쓰인 횟수 → 같으면 초기 자료(카드 사용 건수) */
+export function byPopular(a: Pick<Place, "uses" | "baseUses">, b: Pick<Place, "uses" | "baseUses">) {
+  return b.uses - a.uses || (b.baseUses ?? 0) - (a.baseUses ?? 0);
+}
+
 /* ---------- 검색 (초성 지원) ---------- */
 
 const CHO = "ㄱㄲㄴㄷㄸㄹㅁㅂㅃㅅㅆㅇㅈㅉㅊㅋㅌㅍㅎ";
@@ -94,7 +101,7 @@ const clean = (s: string) => s.toLowerCase().replace(/[\s·&()\-,.]/g, "");
 /** 이름·가맹점명·분류·메뉴에서 검색. 초성만 입력하면 초성 검색 */
 export function searchPlaces(places: Place[], query: string) {
   const q = clean(query);
-  const sorted = [...places].sort((a, b) => b.uses - a.uses || a.name.localeCompare(b.name, "ko"));
+  const sorted = [...places].sort((a, b) => byPopular(a, b) || a.name.localeCompare(b.name, "ko"));
   if (!q) return sorted;
   const onlyCho = /^[ㄱ-ㅎ]+$/.test(q);
   const scored: { p: Place; s: number }[] = [];
@@ -110,7 +117,7 @@ export function searchPlaces(places: Place[], query: string) {
     else if ((p.menus ?? []).some((m) => clean(m.name).includes(q))) s = 1;
     if (s) scored.push({ p, s });
   }
-  return scored.sort((a, b) => b.s - a.s || b.p.uses - a.p.uses).map((x) => x.p);
+  return scored.sort((a, b) => b.s - a.s || byPopular(a.p, b.p)).map((x) => x.p);
 }
 
 /* ---------- 입력 검증 ---------- */

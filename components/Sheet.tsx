@@ -4,7 +4,7 @@ import { AnimatePresence, motion, useDragControls } from "motion/react";
 import { X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { IconButton, cx, useMediaQuery } from "./ui";
+import { IconButton, cx, refreshCaret, useMediaQuery } from "./ui";
 
 export function Sheet({
   open,
@@ -29,11 +29,18 @@ export function Sheet({
   useEffect(() => {
     const v = typeof window !== "undefined" ? window.visualViewport : null;
     if (!open || !v) return;
-    const sync = () => setVv(v.height < window.innerHeight - 1 || v.offsetTop > 0 ? { h: v.height, top: v.offsetTop } : null);
+    let t: ReturnType<typeof setTimeout> | undefined;
+    const sync = () => {
+      setVv(v.height < window.innerHeight - 1 || v.offsetTop > 0 ? { h: v.height, top: v.offsetTop } : null);
+      // 시트 크기·위치가 바뀐 뒤 커서를 새 위치에 다시 그림 (iOS에서 커서만 위에 남는 문제)
+      clearTimeout(t);
+      t = setTimeout(refreshCaret, 150);
+    };
     sync();
     v.addEventListener("resize", sync);
     v.addEventListener("scroll", sync);
     return () => {
+      clearTimeout(t);
       v.removeEventListener("resize", sync);
       v.removeEventListener("scroll", sync);
     };

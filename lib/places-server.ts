@@ -24,7 +24,7 @@ export async function getPlaces(region?: Region): Promise<Place[]> {
   return [...map.values()]
     .filter((p) => (!region || p.region === region) && !p.hidden)
     // 빠진 칸이 있어도 화면·검색에서 오류 나지 않도록 기본값 보정
-    .map((p) => ({ ...p, category: p.category ?? "", address: p.address ?? "", phone: p.phone ?? "", menus: p.menus ?? [], uses: (p.uses ?? 0) + (uses[p.id] ?? 0) }));
+    .map((p) => ({ ...p, category: p.category ?? "", address: p.address ?? "", phone: p.phone ?? "", menus: p.menus ?? [], baseUses: p.uses ?? 0, uses: uses[p.id] ?? 0 }));
 }
 
 export async function getPlace(id: string) {

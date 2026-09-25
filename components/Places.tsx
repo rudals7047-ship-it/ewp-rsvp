@@ -6,6 +6,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ApiError, api, openExternal } from "@/lib/client";
 import {
   PLACE_LIMITS,
+  byPopular,
   parseLabel,
   type Place,
   type PlaceMenu,
@@ -134,8 +135,8 @@ export function PlacePicker({
   }
 
   const showSearch = mode === "multi" || selected.length === 0;
-  // 입력 없이 한 번에 고를 수 있는 자주 가는 곳
-  const quick = (places ?? []).filter((p) => !selectedIds.has(p.id)).sort((a, b) => b.uses - a.uses).slice(0, 6);
+  // 입력 없이 한 번에 고를 수 있는 많이 고른 곳
+  const quick = (places ?? []).filter((p) => !selectedIds.has(p.id)).sort(byPopular).slice(0, 6);
 
   return (
     <div ref={box}>
@@ -222,7 +223,7 @@ export function PlacePicker({
 
           {!open && !q && quick.length > 0 && !full && (
             <div className="mt-2">
-              <p className="mb-1.5 text-[12px] font-semibold text-ink-3">자주 가는 곳 · 탭해서 {mode === "multi" ? "추가" : "선택"}</p>
+              <p className="mb-1.5 text-[12px] font-semibold text-ink-3">많이 고른 곳 · 탭해서 {mode === "multi" ? "추가" : "선택"}</p>
               <div className="flex flex-wrap gap-1.5">
                 {quick.map((p) => (
                   <button
@@ -256,7 +257,7 @@ export function PlacePicker({
                   </div>
                 ) : (
                   <>
-                    {!q && <p className="px-2.5 pb-1 pt-1.5 text-[11.5px] font-semibold text-ink-3">자주 가는 순</p>}
+                    {!q && <p className="px-2.5 pb-1 pt-1.5 text-[11.5px] font-semibold text-ink-3">많이 고른 순</p>}
                     {results.map((p) => {
                       const on = selectedIds.has(p.id);
                       return (
@@ -280,7 +281,7 @@ export function PlacePicker({
                               {[p.category, p.address && shortAddr(p.address), p.menus.length ? `메뉴 ${p.menus.length}` : ""].filter(Boolean).join(" · ") || "정보 없음"}
                             </span>
                           </span>
-                          {p.uses > 0 && <span className="shrink-0 text-[11.5px] font-medium tabular-nums text-ink-3">{p.uses}회</span>}
+                          {p.uses > 0 && <span className="shrink-0 text-[11.5px] font-medium tabular-nums text-ink-3">투표 {p.uses}회</span>}
                         </button>
                       );
                     })}
