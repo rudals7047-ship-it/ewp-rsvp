@@ -4,15 +4,15 @@ import confetti from "canvas-confetti";
 import { motion } from "motion/react";
 import { BarChart3, ChevronDown, Crown, Loader2, PencilLine, UserRound, Users } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ApiError, api, keys, local, progressTable, relUntil, session, track, vibrate } from "@/lib/client";
+import { ApiError, api, canAdmin, fmtDate, josa, keys, local, progressTable, relUntil, session, track, vibrate } from "@/lib/client";
 import { pendingQuestions } from "@/lib/poll";
-import type { Answer, PollDetail, PollSummary } from "@/lib/types";
-import { StageBar } from "./Flow";
+import type { Answer, PollDetail, PollSummary, Stage } from "@/lib/types";
+import { StageBar, stageText } from "./Flow";
 import { PinPad } from "./PinPad";
 import { Results } from "./Results";
 import { Sheet, SheetBody, SheetFooter } from "./Sheet";
 import { VoteFlow } from "./VoteFlow";
-import { Button, cx, toast } from "./ui";
+import { Button, cx, flash, toast } from "./ui";
 
 type Phase = "loading" | "pin" | "main" | "done";
 type Tab = "respond" | "status" | "results" | "admin";
@@ -42,6 +42,37 @@ export function PollSheet({
   const [adminTick, setAdminTick] = useState(0);
   const id = summary?.id;
 
+  // 상단 진행 단계를 눌렀을 때: 관리자는 할 일이 있는 화면으로, 참여자는 무엇을 기다리는지 안내
+  function stageTap(s: Stage, i: number) {
+    if (!poll) return;
+    const admin = isAdminOf(poll);
+    if (s.state === "done") return toast(stageText(s, poll.stages, i));
+    if (s.state === "current") {
+      if (poll.status !== "open") return toast(stageText(s, poll.stages, i));
+      setTab(admin ? "status" : "respond");
+      return toast(admin ? `지금은 '${s.label}' 단계예요. 현황에서 진행 상황을 확인하세요` : `지금은 '${s.label}' 단계예요`);
+    }
+    const end = poll.deadline ?? poll.eventAt;
+    if (s.label === "마감") {
+      if (admin) {
+        const left = progressTable(poll).pending.length;
+        setTab("admin");
+        setTimeout(() => flash("close-poll", left ? `아직 ${left}명이 응답 중이에요. 그래도 끝내려면 '지금 마감'을 누르세요` : "모두 응답했어요. '지금 마감'을 누르면 투표가 끝나요"), 200);
+        return;
+      }
+      return toast(`마감은 만든 사람이 하거나${end ? ` ${fmtDate(end)}에` : ""} 자동으로 돼요. 그 전까지는 응답을 고칠 수 있어요`);
+    }
+    const prev = [...poll.stages.slice(0, i)].reverse().find((x) => x.state !== "done") ?? poll.stages[i - 1];
+    const prevLabel = prev?.label ?? "앞 단계";
+    if (admin) {
+      setTab("status");
+      return toast(`${s.label}${josa(s.label, "은는")} 앞 단계(${prevLabel})가 완료되어야 열려요. 현황의 '메뉴 투표 시작' 카드에서 바로 열 수 있어요`);
+    }
+    return toast(
+      `${s.label}${josa(s.label, "은는")} 앞 단계(${prevLabel})가 완료되어야 열려요. ${poll.deadline ? `${fmtDate(poll.deadline)} 마감 후` : "만든 사람이 식당을 확정하면"} 같은 링크에서 이어서 할 수 있어요`,
+    );
+  }
+
   const route = useCallback((p: PollDetail) => {
     // 명의는 '이 기기로 직접 낸 응답'만 기준 (다른 투표에서 쓴 이름·대신 입력한 응답과 섞이지 않게)
     const mine = p.responses.find((r) => r.own);
@@ -49,7 +80,7 @@ export function PollSheet({
     const needs = !mine || pendingQuestions(p, mine.answers).length > 0;
     if (mine && !needs) local.set(`done:${p.id}`, String(p.round));
     // 만든 사람(관리자)은 관리/결과 화면부터: 참여는 하단 버튼으로
-    const isAdmin = !!local.get(keys.admin(p.id));
+    const isAdmin = canAdmin(p.id);
     setPhase("main");
     setTab(p.status === "open" && needs && !isAdmin ? "respond" : "status");
   }, []);
@@ -67,10 +98,11 @@ export function PollSheet({
     if (!id) return;
     setPoll(null);
     setPinMsg(null);
-    const hasToken = session.get(keys.access(id)) || local.get(keys.admin(id));
-    if (!hasToken) {
+    // 참여자 안심: 투표를 열 때마다 PIN 입력 (인증은 이 창이 열려 있는 동안만 유지). 사이트 관리자만 예외
+    if (!session.get(keys.master)) {
+      session.del(keys.access(id));
       setPhase("pin");
-      return;
+      return () => session.del(keys.access(id));
     }
     setPhase("loading");
     let alive = true;
@@ -136,7 +168,7 @@ export function PollSheet({
                 <br />
                 투표 생성자가 공유한 PIN으로 보호되어 있어요
                 <br />
-                <span className="text-[12.5px]">PIN은 기기에 저장되지 않아요. 창을 닫으면 다시 입력해요.</span>
+                <span className="text-[12.5px]">PIN은 기기에 저장되지 않아요. 투표를 열 때마다 입력해요.</span>
               </>
             }
             message={pinMsg}
@@ -146,7 +178,7 @@ export function PollSheet({
       )}
       {phase === "main" && poll && (
         <>
-          <PollHeader poll={poll} showStages={tab !== "respond"} />
+          <PollHeader poll={poll} showStages={tab !== "respond"} onTap={stageTap} />
           {tab === "respond" &&
             (poll.status === "open" || (proxy && isAdminOf(poll)) ? (
               <VoteFlow
@@ -208,11 +240,6 @@ export function PollSheet({
               setRespondKey((k) => k + 1);
               setTab("respond");
             }}
-            onLock={() => {
-              session.del(keys.access(poll.id));
-              toast("잠갔어요. 다시 볼 때 PIN을 입력해요");
-              onClose();
-            }}
             onRelease={async (name) => {
               try {
                 const { poll: p } = await api.releaseResponse(poll.id, name);
@@ -248,17 +275,17 @@ export function PollSheet({
   );
 }
 
-const isAdminOf = (p: PollDetail) => !!local.get(keys.admin(p.id));
+const isAdminOf = (p: PollDetail) => canAdmin(p.id);
 
 /** 상단: 팀·제목 한 줄 + (현황·결과·관리 탭에서) 투표 진행 단계 */
-function PollHeader({ poll, showStages }: { poll: PollDetail; showStages: boolean }) {
+function PollHeader({ poll, showStages, onTap }: { poll: PollDetail; showStages: boolean; onTap: (s: Stage, i: number) => void }) {
   return (
     <div className="shrink-0 border-b border-line/70 px-5 pb-2.5 pt-2 sm:pt-5">
       <div className="flex min-w-0 items-center gap-2 pr-10">
         <span className="shrink-0 rounded-full bg-ink/[0.05] px-2 py-0.5 text-[11.5px] font-semibold text-ink-2">{poll.team}</span>
         <h2 className="truncate text-[16px] font-bold tracking-tight">{poll.title}</h2>
       </div>
-      {showStages && <StageBar stages={poll.stages} className="mt-2" />}
+      {showStages && <StageBar stages={poll.stages} className="mt-2" onTap={onTap} />}
     </div>
   );
 }
@@ -273,7 +300,6 @@ function Dock({
   onTab,
   onSelf,
   onRelease,
-  onLock,
   onProxy,
 }: {
   poll: PollDetail;
@@ -284,7 +310,6 @@ function Dock({
   onTab: (t: Tab) => void;
   onSelf: () => void;
   onRelease: (name: string) => void;
-  onLock: () => void;
   onProxy: () => void;
 }) {
   const [menu, setMenu] = useState(false);
@@ -309,7 +334,7 @@ function Dock({
   const identity = proxy
     ? `관리자 · ${proxy.name ? `${proxy.name}님` : "대상 선택 중"} 대신 입력`
     : isAdmin
-      ? `관리자${myName ? ` · 내 응답 ${myName}` : ""}`
+      ? `${local.get(keys.admin(poll.id)) ? "관리자" : "사이트 관리자"}${myName ? ` · 내 응답 ${myName}` : ""}`
       : myName
         ? `${myName}님`
         : "이름 선택 전";
@@ -338,9 +363,6 @@ function Dock({
             <MenuItem onClick={() => { setMenu(false); onRelease(myName); }}>
               👑 &lsquo;{myName}&rsquo;님 응답은 제가 대신 입력한 거예요 (이 기기 명의 해제)
             </MenuItem>
-          )}
-          {!isAdmin && (
-            <MenuItem onClick={() => { setMenu(false); onLock(); }}>🔒 이 기기에서 잠그기 (다시 볼 때 PIN 입력)</MenuItem>
           )}
           {!isAdmin && poll.hasAdminPin && <MenuItem onClick={() => { setMenu(false); onTab("admin"); }}>👑 관리자 모드로 전환</MenuItem>}
         </div>

@@ -3,12 +3,13 @@
 import { AnimatePresence, motion } from "motion/react";
 import { Database, MapPin, Plus, ShieldCheck, Sparkles } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { api, keys, local } from "@/lib/client";
+import { api, keys, local, session } from "@/lib/client";
 import { REGIONS, type Region, regionOf } from "@/lib/places";
 import type { PollDetail, PollSummary } from "@/lib/types";
 import { CreateSheet } from "./CreateSheet";
 import { CardSkeleton, PollCard } from "./PollCard";
 import { PollSheet } from "./PollSheet";
+import { MasterSheet } from "./Master";
 import { PrivacySheet } from "./Privacy";
 import { Button, Toaster, cx, toast, useNow } from "./ui";
 
@@ -25,6 +26,20 @@ export function Home({ initialPollId }: { initialPollId?: string }) {
   const [, force] = useState(0);
   const [showAllDone, setShowAllDone] = useState(false);
   const [privacyOpen, setPrivacyOpen] = useState(false);
+  const [teamsOpen, setTeamsOpen] = useState(false);
+  const [teamQuery, setTeamQuery] = useState("");
+  const [masterOn, setMasterOn] = useState<boolean | null>(null); // null: 기능 꺼짐
+  const [masterOpen, setMasterOpen] = useState(false);
+  useEffect(() => {
+    api
+      .masterStatus()
+      .then((r) => {
+        if (!r.enabled) return setMasterOn(null);
+        if (!r.active) session.del(keys.master);
+        setMasterOn(r.active);
+      })
+      .catch(() => {});
+  }, []);
   const pending = useRef(initialPollId);
   const now = useNow();
 
@@ -180,6 +195,18 @@ export function Home({ initialPollId }: { initialPollId?: string }) {
           </div>
         </header>
 
+        {masterOn && (
+          <div className="mb-4 flex items-center gap-2.5 rounded-2xl bg-ink px-4 py-3 text-[13px] leading-relaxed text-white">
+            <ShieldCheck className="size-4 shrink-0 text-[#6ee7b7]" />
+            <p className="min-w-0 flex-1">
+              <b>사이트 관리자 모드</b> · 모든 투표를 PIN 없이 열어 마감·삭제하고, 명단·식당을 정리할 수 있어요
+            </p>
+            <button type="button" onClick={() => setMasterOpen(true)} className="shrink-0 font-semibold underline underline-offset-2">
+              관리
+            </button>
+          </div>
+        )}
+
         {storage === "memory" && (
           <div className="mb-4 flex items-start gap-2.5 rounded-2xl border border-[#f2d6a7] bg-[#fdf6e9] px-4 py-3 text-[13px] leading-relaxed text-[#8a5a12]">
             <Database className="mt-0.5 size-4 shrink-0" />
@@ -216,8 +243,20 @@ export function Home({ initialPollId }: { initialPollId?: string }) {
           aria-label="팀 선택"
           className="sticky top-0 z-20 -mx-4 mb-5 bg-canvas/85 px-4 py-2.5 backdrop-blur-xl supports-[backdrop-filter]:bg-canvas/70 sm:-mx-6 sm:px-6"
         >
-          <div className="no-scrollbar -mx-4 flex gap-2 overflow-x-auto px-4 sm:-mx-6 sm:px-6">
-            {[ALL, ...teams].map((t) => {
+          {/* 팀이 많으면 옆으로 넘기거나, '펼치기'로 한 번에 보고 검색 */}
+          {teamsOpen && (
+            <input
+              value={teamQuery}
+              onChange={(e) => setTeamQuery(e.target.value)}
+              placeholder="팀 이름 검색"
+              aria-label="팀 이름 검색"
+              autoComplete="off"
+              autoFocus
+              className="mb-2 h-10 w-full rounded-xl border border-line bg-surface px-3.5 text-[15px] outline-none focus:border-ink/30"
+            />
+          )}
+          <div className={cx("-mx-4 flex gap-2 px-4 sm:-mx-6 sm:px-6", teamsOpen ? "flex-wrap" : "no-scrollbar overflow-x-auto")}>
+            {[ALL, ...teams.filter((t) => !teamsOpen || !teamQuery.trim() || t.toLowerCase().includes(teamQuery.trim().toLowerCase()))].map((t) => {
               const on = team === t;
               const count = regionPolls.filter((p) => p.status === "open" && (t === ALL || p.team === t)).length;
               return (
@@ -240,6 +279,19 @@ export function Home({ initialPollId }: { initialPollId?: string }) {
                 </button>
               );
             })}
+            {teams.length > 4 && (
+              <button
+                type="button"
+                onClick={() => {
+                  setTeamsOpen((v) => !v);
+                  setTeamQuery("");
+                }}
+                aria-expanded={teamsOpen}
+                className="inline-flex h-10 shrink-0 items-center rounded-full border border-dashed border-ink/20 px-3.5 text-[13.5px] font-semibold text-ink-2"
+              >
+                {teamsOpen ? "접기 ▴" : `🔍 팀 ${teams.length}개 모두 보기`}
+              </button>
+            )}
           </div>
         </nav>
 
@@ -311,6 +363,14 @@ export function Home({ initialPollId }: { initialPollId?: string }) {
           <button type="button" onClick={() => setPrivacyOpen(true)} className="font-semibold text-ink-2 underline underline-offset-2">
             개인정보 안내
           </button>
+          {masterOn !== null && (
+            <>
+              {" · "}
+              <button type="button" onClick={() => setMasterOpen(true)} className="font-semibold text-ink-2 underline underline-offset-2">
+                사이트 관리
+              </button>
+            </>
+          )}
         </footer>
       </div>
 
@@ -326,6 +386,15 @@ export function Home({ initialPollId }: { initialPollId?: string }) {
       </div>
 
       <PrivacySheet open={privacyOpen} onClose={() => setPrivacyOpen(false)} />
+      <MasterSheet
+        open={masterOpen}
+        active={!!masterOn}
+        onClose={() => setMasterOpen(false)}
+        onChange={(v) => {
+          setMasterOn(v);
+          force((n) => n + 1);
+        }}
+      />
       <PollSheet
         summary={openPoll}
         onClose={closeCard}

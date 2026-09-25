@@ -1,5 +1,5 @@
 import { freshPoll } from "@/lib/advance";
-import { requesterHash, verifyAccess, verifyAdmin } from "@/lib/auth";
+import { requesterHash, verifyAccess, isPollAdmin } from "@/lib/auth";
 import { fail, json, readJson } from "@/lib/http";
 import { LIMITS, addRound, parseQuestion, startMenuRound, toDetail } from "@/lib/poll";
 import { getStore } from "@/lib/store";
@@ -14,7 +14,7 @@ export async function GET(req: Request, { params }: Ctx) {
   if (!poll) return fail("투표를 찾을 수 없어요.", 404);
   const ok =
     (await verifyAccess(poll, req.headers.get("x-poll-token"))) ||
-    (await verifyAdmin(poll, req.headers.get("x-admin-token")));
+    (await isPollAdmin(req, poll));
   if (!ok) return fail("PIN 인증이 필요해요.", 401);
   return json({ poll: toDetail(poll, await store.getResponses(id), await requesterHash(req, id)) });
 }
@@ -25,7 +25,7 @@ export async function PATCH(req: Request, { params }: Ctx) {
   const store = getStore();
   const poll = await freshPoll(id);
   if (!poll) return fail("투표를 찾을 수 없어요.", 404);
-  if (!(await verifyAdmin(poll, req.headers.get("x-admin-token")))) return fail("권한이 없어요.", 403);
+  if (!(await isPollAdmin(req, poll))) return fail("권한이 없어요.", 403);
   const body = (await readJson(req)) as { action?: string; questionId?: string; option?: string; question?: unknown } | null;
   if (body?.action === "decide") {
     // 결과 확정 (예: 식당 확정). option이 비어 있으면 확정 취소
@@ -70,7 +70,7 @@ export async function DELETE(req: Request, { params }: Ctx) {
   const store = getStore();
   const poll = await freshPoll(id);
   if (!poll) return json({ ok: true });
-  if (!(await verifyAdmin(poll, req.headers.get("x-admin-token")))) return fail("권한이 없어요.", 403);
+  if (!(await isPollAdmin(req, poll))) return fail("권한이 없어요.", 403);
   await store.deletePoll(id);
   return json({ ok: true });
 }

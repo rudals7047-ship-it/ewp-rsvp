@@ -222,10 +222,11 @@ export function toast(text: string) {
   const id = Date.now() + Math.random();
   toasts = [...toasts.slice(-2), { id, text }];
   emit();
+  // 긴 안내는 읽을 시간만큼 더 오래 표시
   setTimeout(() => {
     toasts = toasts.filter((t) => t.id !== id);
     emit();
-  }, 2400);
+  }, Math.min(6000, Math.max(2400, text.length * 70)));
 }
 
 export function Toaster() {
@@ -278,4 +279,47 @@ export function useNow(intervalMs = 30000) {
     return () => clearInterval(t);
   }, [intervalMs]);
   return now;
+}
+
+/** 기존 저장본을 바꾸기 전 재확인 (무엇이 바뀌는지 보여주고 한 번 더 누르게) */
+export function ConfirmCard({
+  title,
+  lines,
+  note,
+  confirmLabel = "바꾸기",
+  busy,
+  onConfirm,
+  onCancel,
+}: {
+  title: string;
+  lines: string[];
+  note?: string;
+  confirmLabel?: string;
+  busy?: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <motion.div role="alertdialog" aria-label={title} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} className="rounded-2xl border-2 border-[#f0d9a8] bg-[#fdf8ee] p-4">
+      <p className="text-[14px] font-bold text-ink">{title}</p>
+      {lines.length > 0 && (
+        <ul className="mt-2 space-y-1 text-[13px] leading-relaxed text-ink-2">
+          {lines.map((l, i) => (
+            <li key={i} className="break-keep">
+              • {l}
+            </li>
+          ))}
+        </ul>
+      )}
+      {note && <p className="mt-2 text-[12px] leading-relaxed text-ink-3">{note}</p>}
+      <div className="mt-3 grid grid-cols-[1fr_1.4fr] gap-2">
+        <Button variant="secondary" size="md" onClick={onCancel}>
+          취소
+        </Button>
+        <Button size="md" loading={busy} onClick={onConfirm}>
+          {confirmLabel}
+        </Button>
+      </div>
+    </motion.div>
+  );
 }

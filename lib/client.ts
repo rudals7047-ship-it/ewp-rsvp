@@ -33,6 +33,8 @@ export const keys = {
   region: "me:region",
   access: (id: string) => `access:${id}`,
   admin: (id: string) => `admin:${id}`,
+  /** 사이트 관리자 세션 (이 창에서만) */
+  master: "master",
 };
 
 /** 이 기기 고유의 응답 소유 토큰 (다른 기기가 같은 이름으로 덮어쓰는 것 방지) */
@@ -64,6 +66,8 @@ export class ApiError extends Error {
 async function request<T>(url: string, init: RequestInit = {}, id?: string): Promise<T> {
   const headers = new Headers(init.headers);
   if (init.body) headers.set("Content-Type", "application/json");
+  const m = session.get(keys.master);
+  if (m) headers.set("x-master-token", m);
   if (id) {
     const t = session.get(keys.access(id));
     const a = local.get(keys.admin(id));
@@ -120,6 +124,9 @@ export const api = {
   }) => request<{ place: Place }>("/api/places", { method: "POST", body: JSON.stringify(p) }),
   addMenus: (id: string, menus: PlaceMenu[]) =>
     request<{ place: Place; added: number }>("/api/places", { method: "POST", body: JSON.stringify({ action: "addMenus", id, menus }) }),
+  hidePlace: (id: string) => request<{ ok: true }>("/api/places", { method: "POST", body: JSON.stringify({ action: "hide", id }) }),
+  masterStatus: () => request<{ enabled: boolean; active: boolean }>("/api/master"),
+  masterLogin: (key: string) => request<{ token: string }>("/api/master", { method: "POST", body: JSON.stringify({ key }) }),
   revertPlace: (id: string) => request<{ place: Place }>("/api/places", { method: "POST", body: JSON.stringify({ action: "revert", id }) }),
   rosters: (region: Region) => request<{ rosters: RosterSummary[] }>(`/api/rosters?region=${region}`),
   createRoster: (b: { region: Region; title: string; names: string[]; pin: string }) =>
@@ -389,3 +396,9 @@ export function josa(word: string, pair: "은는" | "이가" | "을를" | "으�
   if (pair === "으로") return jong === 0 || jong === 8 ? "로" : "으로";
   return jong ? pair[0] : pair[1];
 }
+
+/** 이 창에서 사이트 관리자로 로그인했는지 */
+export const isMaster = () => !!session.get(keys.master);
+
+/** 이 기기가 해당 투표의 관리자인지 (투표 관리자 또는 사이트 관리자) */
+export const canAdmin = (pollId: string) => !!local.get(keys.admin(pollId)) || isMaster();

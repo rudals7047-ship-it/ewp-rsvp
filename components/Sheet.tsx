@@ -23,6 +23,21 @@ export function Sheet({
   useEffect(() => setMounted(true), []);
 
   const panel = useRef<HTMLDivElement>(null);
+  // 키보드가 올라오면 보이는 영역(visualViewport)에 시트를 맞춤.
+  // iOS는 키보드가 뜰 때 화면 전체를 밀어 올리는데, 이때 고정(fixed) 시트 안 입력칸의 커서가 엉뚱한 곳에 그려지는 문제가 있음
+  const [vv, setVv] = useState<{ h: number; top: number } | null>(null);
+  useEffect(() => {
+    const v = typeof window !== "undefined" ? window.visualViewport : null;
+    if (!open || !v) return;
+    const sync = () => setVv(v.height < window.innerHeight - 1 || v.offsetTop > 0 ? { h: v.height, top: v.offsetTop } : null);
+    sync();
+    v.addEventListener("resize", sync);
+    v.addEventListener("scroll", sync);
+    return () => {
+      v.removeEventListener("resize", sync);
+      v.removeEventListener("scroll", sync);
+    };
+  }, [open]);
   useEffect(() => {
     if (!open) return;
     // 접근성: 열리면 시트로 포커스 이동, 닫히면 원래 위치로 복귀
@@ -44,7 +59,13 @@ export function Sheet({
   return createPortal(
     <AnimatePresence>
       {open && (
-        <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-6" role="dialog" aria-modal="true" aria-label={label}>
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-6"
+          style={vv ? { top: vv.top, height: vv.h, bottom: "auto" } : undefined}
+          role="dialog"
+          aria-modal="true"
+          aria-label={label}
+        >
           <motion.div
             className="absolute inset-0 bg-[#0e1116]/45 backdrop-blur-[3px]"
             initial={{ opacity: 0 }}
@@ -55,7 +76,7 @@ export function Sheet({
           <motion.div
             ref={panel}
             tabIndex={-1}
-            className="relative flex max-h-[94dvh] outline-none w-full flex-col overflow-hidden rounded-t-[28px] bg-surface shadow-lift sm:max-h-[min(88dvh,820px)] sm:max-w-[440px] sm:rounded-[28px]"
+            className="relative flex max-h-[94%] outline-none w-full flex-col overflow-hidden rounded-t-[28px] bg-surface shadow-lift sm:max-h-[min(88dvh,820px)] sm:max-w-[440px] sm:rounded-[28px]"
             initial={desktop ? { opacity: 0, scale: 0.96, y: 16 } : { y: "100%" }}
             animate={desktop ? { opacity: 1, scale: 1, y: 0 } : { y: 0 }}
             exit={desktop ? { opacity: 0, scale: 0.97, y: 8 } : { y: "100%" }}

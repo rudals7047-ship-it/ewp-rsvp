@@ -16,7 +16,7 @@ import {
   naverUrl,
   searchPlaces,
 } from "@/lib/places";
-import { Button, cx, flash, inputCls, reveal, toast } from "./ui";
+import { Button, ConfirmCard, cx, flash, inputCls, reveal, toast } from "./ui";
 
 /* ---------- 데이터 ---------- */
 
@@ -44,6 +44,12 @@ export function usePlaces(region: Region) {
     };
   }, [region]);
   return places;
+}
+
+/** 목록에서 제거 (사이트 관리자 삭제) */
+export function dropFromCache(p: Place) {
+  cache.set(p.region, (cache.get(p.region) ?? []).filter((x) => x.id !== p.id));
+  listeners.forEach((f) => f());
 }
 
 function upsertCache(p: Place) {
@@ -377,6 +383,9 @@ export function PlaceEditor({
   }
 
   const small = "h-11 w-full rounded-xl bg-ink/[0.04] px-3 text-[16px] outline-none placeholder:text-ink-3/80 focus:bg-ink/[0.06]";
+  // 기존 식당을 바꿀 때는 무엇이 바뀌는지 보여주고 한 번 더 확인
+  const [confirm, setConfirm] = useState<"save" | "revert" | null>(null);
+  const changes = placeDiff(place, { ...f, menus: f.menus.filter((m) => m.name.trim()) });
 
   return (
     <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} className="rounded-2xl border-2 border-ink/80 bg-surface p-4">
@@ -412,21 +421,77 @@ export function PlaceEditor({
       <p className="mt-3 text-[12px] leading-relaxed text-ink-3">
         저장을 눌러야 공용 목록에 반영돼요. 이미 만든 투표에는 영향이 없고, 잘못 고쳤다면 직전 내용으로 되돌릴 수 있어요.
       </p>
-      {!isNew && place.prev && (
-        <button type="button" disabled={busy} onClick={revert} className="mt-2 inline-flex items-center gap-1 text-[12.5px] font-semibold text-ink-2 underline underline-offset-4">
+      {!isNew && place.prev && !confirm && (
+        <button type="button" disabled={busy} onClick={() => setConfirm("revert")} className="mt-2 inline-flex items-center gap-1 text-[12.5px] font-semibold text-ink-2 underline underline-offset-4">
           <Undo2 className="size-3.5" /> 직전 저장 내용으로 되돌리기
         </button>
       )}
-      <div className="mt-3 grid grid-cols-[1fr_1.6fr] gap-2">
-        <Button variant="secondary" size="md" onClick={onCancel}>
-          취소
-        </Button>
-        <Button size="md" loading={busy} onClick={() => (f.name.trim() ? save() : flash("pe-name", "식당 이름을 입력해 주세요"))}>
-          저장
-        </Button>
-      </div>
+      {confirm === "save" ? (
+        <div className="mt-3">
+          <ConfirmCard
+            title={`'${place.name}' 정보를 바꿀까요?`}
+            lines={changes}
+            note="공용 목록이라 다른 사람이 만드는 투표에도 바뀐 정보가 보여요. 이미 만든 투표는 그대로예요."
+            confirmLabel="바꾸기"
+            busy={busy}
+            onCancel={() => setConfirm(null)}
+            onConfirm={() => save()}
+          />
+        </div>
+      ) : confirm === "revert" && place.prev ? (
+        <div className="mt-3">
+          <ConfirmCard
+            title="직전 저장 내용으로 되돌릴까요?"
+            lines={placeDiff(place, { ...place, ...place.prev })}
+            confirmLabel="되돌리기"
+            busy={busy}
+            onCancel={() => setConfirm(null)}
+            onConfirm={() => revert()}
+          />
+        </div>
+      ) : (
+        <div className="mt-3 grid grid-cols-[1fr_1.6fr] gap-2">
+          <Button variant="secondary" size="md" onClick={onCancel}>
+            취소
+          </Button>
+          <Button
+            size="md"
+            loading={busy}
+            onClick={() => {
+              if (!f.name.trim()) return flash("pe-name", "식당 이름을 입력해 주세요");
+              if (isNew) return save();
+              if (!changes.length) return onCancel();
+              setConfirm("save");
+            }}
+          >
+            저장
+          </Button>
+        </div>
+      )}
     </motion.div>
   );
+}
+
+/** 식당 정보 변경 요약 (재확인용) */
+function placeDiff(a: Pick<Place, "name" | "category" | "address" | "phone" | "menus">, b: Pick<Place, "name" | "category" | "address" | "phone" | "menus">) {
+  const out: string[] = [];
+  const field = (label: string, x: string, y: string) => {
+    if ((x ?? "").trim() !== (y ?? "").trim()) out.push(`${label}: ${x?.trim() || "(없음)"} → ${y?.trim() || "(없음)"}`);
+  };
+  field("이름", a.name, b.name);
+  field("분류", a.category, b.category);
+  field("주소", a.address, b.address);
+  field("전화", a.phone, b.phone);
+  const key = (m: PlaceMenu) => m.name.trim();
+  const am = new Map(a.menus.map((m) => [key(m), m]));
+  const bm = new Map(b.menus.map((m) => [key(m), m]));
+  const added = [...bm.keys()].filter((k) => !am.has(k));
+  const removed = [...am.keys()].filter((k) => !bm.has(k));
+  const priced = [...bm.keys()].filter((k) => am.has(k) && (am.get(k)!.price ?? "") !== (bm.get(k)!.price ?? ""));
+  if (added.length) out.push(`메뉴 추가: ${added.join(", ")}`);
+  if (removed.length) out.push(`메뉴 삭제: ${removed.join(", ")}`);
+  if (priced.length) out.push(`가격 변경: ${priced.map((k) => `${k} ${am.get(k)!.price || "-"} → ${bm.get(k)!.price || "-"}`).join(", ")}`);
+  return out;
 }
 
 /* ---------- 직접 넣은 메뉴를 식당 정보에 저장 (누를 때만, 추가만) ---------- */
@@ -434,8 +499,26 @@ export function PlaceEditor({
 export function SaveMenus({ placeId, placeName, labels }: { placeId?: string; placeName: string; labels: string[] }) {
   const [done, setDone] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
+  const [confirming, setConfirming] = useState(false);
   const todo = labels.filter((l) => !done.includes(l));
   if (!placeId || !todo.length) return null;
+  if (confirming)
+    return (
+      <div className="mt-2">
+        <ConfirmCard
+          title={`'${placeName}' 메뉴 목록에 ${todo.length}개를 추가할까요?`}
+          lines={todo}
+          note="기존 메뉴는 바뀌지 않고 새 메뉴만 더해져요. 다른 사람이 만드는 투표에서도 보여요."
+          confirmLabel="추가하기"
+          busy={busy}
+          onCancel={() => setConfirming(false)}
+          onConfirm={async () => {
+            await save();
+            setConfirming(false);
+          }}
+        />
+      </div>
+    );
   async function save() {
     setBusy(true);
     try {
@@ -453,7 +536,7 @@ export function SaveMenus({ placeId, placeName, labels }: { placeId?: string; pl
     <button
       type="button"
       disabled={busy}
-      onClick={save}
+      onClick={() => setConfirming(true)}
       className="mt-2 inline-flex items-center gap-1 rounded-full bg-ink/[0.05] px-3 py-1.5 text-[12.5px] font-semibold text-ink-2 hover:bg-ink/[0.08] active:scale-95"
     >
       {busy ? <Loader2 className="size-3.5 animate-spin" /> : <Plus className="size-3.5" />}

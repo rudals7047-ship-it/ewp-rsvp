@@ -88,7 +88,12 @@ export function CreateSheet({
   const [step, setStep] = useState<Step>("type");
   const [dir, setDir] = useState(1);
   const [template, setTemplate] = useState<Template>("meal");
-  const [team, setTeam] = useState(defaultTeam ?? "");
+  // 팀은 자동으로 채우지 않음 (의도치 않은 팀으로 만들어지지 않게). 보고 있던 팀을 맨 앞에 보여주기만 함
+  const [team, setTeam] = useState("");
+  const [teamQuery, setTeamQuery] = useState("");
+  const teamList = (defaultTeam && teams.includes(defaultTeam) ? [defaultTeam, ...teams.filter((t) => t !== defaultTeam)] : teams).filter(
+    (t) => !teamQuery.trim() || t.toLowerCase().includes(teamQuery.trim().toLowerCase()),
+  );
   const [addingTeam, setAddingTeam] = useState(!teams.length);
   const [title, setTitle] = useState("");
   // 오후 6시가 지났으면 기본 날짜를 내일로
@@ -321,9 +326,19 @@ export function CreateSheet({
               <SheetBody className="pb-6 pt-5">
                 <Head title={isMeal ? "모임 정보" : "투표 정보"} />
                 <div className="space-y-6">
-                  <Field label="팀" id="f-team" error={ferr("team")}>
+                  <Field label="팀" id="f-team" error={ferr("team")} hint={team && !addingTeam ? `선택: ${team}` : "직접 선택해 주세요"}>
+                    {teams.length > 6 && !addingTeam && (
+                      <input
+                        value={teamQuery}
+                        onChange={(e) => setTeamQuery(e.target.value)}
+                        placeholder="팀 이름 검색"
+                        aria-label="팀 이름 검색"
+                        autoComplete="off"
+                        className={cx(inputCls, "mb-2.5 h-11 text-[15px]")}
+                      />
+                    )}
                     <div className="flex flex-wrap gap-2">
-                      {teams.map((t) => (
+                      {teamList.map((t) => (
                         <Chip
                           key={t}
                           on={!addingTeam && team === t}
@@ -341,10 +356,10 @@ export function CreateSheet({
                           dashed
                           onClick={() => {
                             setAddingTeam(true);
-                            setTeam("");
+                            setTeam(teamQuery.trim());
                           }}
                         >
-                          <Plus className="size-4" /> 새 팀
+                          <Plus className="size-4" /> {teamQuery.trim() && !teamList.length ? `'${teamQuery.trim()}' 새 팀으로` : "새 팀"}
                         </Chip>
                       )}
                     </div>
@@ -467,8 +482,13 @@ export function CreateSheet({
                       value={note}
                       onChange={(e) => setNote(e.target.value)}
                       maxLength={LIMITS.note}
-                      rows={2}
+                      rows={3}
                       placeholder="예) 법인카드 사용, 1인 3만원 이내"
+                      // 키보드가 다 올라온 뒤 입력칸을 시트 안에서 보이는 위치로
+                      onFocus={(e) => {
+                        const el = e.currentTarget;
+                        setTimeout(() => reveal(el), 350);
+                      }}
                       className={textareaCls}
                     />
                   </Field>

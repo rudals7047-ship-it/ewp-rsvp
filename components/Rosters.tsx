@@ -3,12 +3,12 @@
 import { AnimatePresence, motion } from "motion/react";
 import { Check, Lock, Save, Users } from "lucide-react";
 import { useEffect, useState } from "react";
-import { ApiError, api } from "@/lib/client";
+import { ApiError, api, isMaster } from "@/lib/client";
 import { LIMITS } from "@/lib/poll";
 import type { Region } from "@/lib/places";
 import type { RosterSummary } from "@/lib/types";
 import { ChipsInput } from "./ChipsInput";
-import { Button, cx, toast } from "./ui";
+import { Button, ConfirmCard, cx, toast } from "./ui";
 
 const pinCls =
   "h-11 w-[92px] shrink-0 rounded-xl bg-ink/[0.04] px-3 text-center text-[18px] font-bold tracking-[0.4em] outline-none placeholder:text-[14px] placeholder:font-medium placeholder:tracking-normal placeholder:text-ink-3/80 focus:bg-ink/[0.06]";
@@ -83,7 +83,7 @@ export function RosterField({
   }, [region]);
 
   async function open(r: RosterSummary) {
-    if (pin.length !== 4) {
+    if (pin.length !== 4 && !isMaster()) {
       setOpenErr(true);
       document.getElementById("roster-open-pin")?.focus();
       return;
@@ -142,6 +142,9 @@ export function RosterField({
   }
 
   const changed = source && (source.names.length !== names.length || source.names.some((n, i) => n !== names[i]));
+  const [confirming, setConfirming] = useState(false);
+  const added = source ? names.filter((n) => !source.names.includes(n)) : [];
+  const removed = source ? source.names.filter((n) => !names.includes(n)) : [];
 
   return (
     <div>
@@ -211,8 +214,25 @@ export function RosterField({
 
       {names.length > 0 && (
         <div className="mt-2.5">
-          {source && changed ? (
-            <button type="button" disabled={busy} onClick={saveUpdate} className="inline-flex items-center gap-1 text-[13px] font-semibold text-ink-2 underline underline-offset-4">
+          {source && changed && confirming ? (
+            <ConfirmCard
+              title={`'${source.title}' 보관 명단을 바꿀까요?`}
+              lines={[
+                ...(added.length ? [`추가 ${added.length}명: ${added.join(", ")}`] : []),
+                ...(removed.length ? [`삭제 ${removed.length}명: ${removed.join(", ")}`] : []),
+                ...(!added.length && !removed.length ? ["이름 순서가 바뀌어요"] : []),
+              ]}
+              note="이 명단을 불러오는 다음 투표부터 적용돼요. 이미 만든 투표의 명단은 그대로예요."
+              confirmLabel="명단 바꾸기"
+              busy={busy}
+              onCancel={() => setConfirming(false)}
+              onConfirm={async () => {
+                await saveUpdate();
+                setConfirming(false);
+              }}
+            />
+          ) : source && changed ? (
+            <button type="button" disabled={busy} onClick={() => setConfirming(true)} className="inline-flex items-center gap-1 text-[13px] font-semibold text-ink-2 underline underline-offset-4">
               <Save className="size-3.5" /> &lsquo;{source.title}&rsquo; 명단에 변경사항 저장
             </button>
           ) : !source && !saving ? (

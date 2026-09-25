@@ -1,4 +1,4 @@
-import { verifyRosterPin } from "@/lib/auth";
+import { verifyMaster, verifyRosterPin } from "@/lib/auth";
 import { fail, json, readJson } from "@/lib/http";
 import { LIMITS, parseRoster } from "@/lib/poll";
 import { pinGuard } from "@/lib/ratelimit";
@@ -16,14 +16,17 @@ export async function POST(req: Request, { params }: Ctx) {
   const roster = await store.getRoster(id);
   if (!roster) return fail("명단을 찾을 수 없어요.", 404);
 
-  const guard = await pinGuard(req, `roster:${id}`);
-  if (guard.blocked) return fail("시도 횟수를 초과했어요. 10분 후 다시 시도해 주세요.", 429);
   const b = ((await readJson(req)) ?? {}) as Record<string, unknown>;
-  const pin = typeof b.pin === "string" ? b.pin : "";
-  if (!(await verifyRosterPin(roster, pin))) {
-    return json({ error: "PIN이 일치하지 않아요.", attemptsLeft: await guard.fail() }, 401);
+  // 사이트 관리자는 PIN 없이 열기·수정·삭제 가능
+  if (!(await verifyMaster(req))) {
+    const guard = await pinGuard(req, `roster:${id}`);
+    if (guard.blocked) return fail("시도 횟수를 초과했어요. 10분 후 다시 시도해 주세요.", 429);
+    const pin = typeof b.pin === "string" ? b.pin : "";
+    if (!(await verifyRosterPin(roster, pin))) {
+      return json({ error: "PIN이 일치하지 않아요.", attemptsLeft: await guard.fail() }, 401);
+    }
+    await guard.success();
   }
-  await guard.success();
 
   if (b.action === "delete") {
     await store.deleteRoster(id);

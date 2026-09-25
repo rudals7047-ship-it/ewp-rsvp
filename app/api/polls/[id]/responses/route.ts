@@ -1,5 +1,5 @@
 import { freshPoll } from "@/lib/advance";
-import { requesterHash, hashOwner, verifyAccess, verifyAdmin, verifyOwner } from "@/lib/auth";
+import { requesterHash, hashOwner, verifyAccess, isPollAdmin, verifyOwner } from "@/lib/auth";
 import { fail, json, readJson } from "@/lib/http";
 import { LIMITS, nameKey, parseAnswers, pollStatus, toDetail } from "@/lib/poll";
 import { overLimit } from "@/lib/ratelimit";
@@ -12,7 +12,7 @@ export async function POST(req: Request, { params }: Ctx) {
   const store = getStore();
   const poll = await freshPoll(id);
   if (!poll) return fail("투표를 찾을 수 없어요.", 404);
-  const isAdmin = await verifyAdmin(poll, req.headers.get("x-admin-token"));
+  const isAdmin = await isPollAdmin(req, poll);
   if (!isAdmin && !(await verifyAccess(poll, req.headers.get("x-poll-token")))) return fail("PIN 인증이 필요해요.", 401);
   if (pollStatus(poll) === "closed" && !isAdmin) return fail("이미 마감된 투표예요.", 409);
   if (await overLimit(req, "resp", 60, 600)) return fail("잠시 후 다시 시도해 주세요.", 429);
@@ -68,7 +68,7 @@ export async function DELETE(req: Request, { params }: Ctx) {
   const store = getStore();
   const poll = await freshPoll(id);
   if (!poll) return fail("투표를 찾을 수 없어요.", 404);
-  if (!(await verifyAdmin(poll, req.headers.get("x-admin-token")))) return fail("권한이 없어요.", 403);
+  if (!(await isPollAdmin(req, poll))) return fail("권한이 없어요.", 403);
   const url = new URL(req.url);
   const name = url.searchParams.get("name") ?? "";
   if (!name.trim()) return fail("이름이 필요해요.");
