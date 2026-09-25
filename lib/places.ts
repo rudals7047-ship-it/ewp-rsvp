@@ -98,6 +98,14 @@ function chosung(s: string) {
 
 const clean = (s: string) => s.toLowerCase().replace(/[\s·&()\-,.]/g, "");
 
+/** 한글 포함 검색 (초성만 입력하면 초성으로 비교: "ㅎㄱ" → "회계세무부") */
+export function koIncludes(text: string, query: string) {
+  const q = clean(query);
+  if (!q) return true;
+  const t = clean(text);
+  return /^[ㄱ-ㅎ]+$/.test(q) ? chosung(t).includes(q) : t.includes(q);
+}
+
 /** 이름·가맹점명·분류·메뉴에서 검색. 초성만 입력하면 초성 검색 */
 export function searchPlaces(places: Place[], query: string) {
   const q = clean(query);
