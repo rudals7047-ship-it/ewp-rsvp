@@ -27,6 +27,7 @@ export function Home({ initialPollId }: { initialPollId?: string }) {
   const [showAllDone, setShowAllDone] = useState(false);
   const [privacyOpen, setPrivacyOpen] = useState(false);
   const [teamsOpen, setTeamsOpen] = useState(false);
+  const [teamQuery, setTeamQuery] = useState("");
   const [masterOn, setMasterOn] = useState<boolean | null>(null); // null: 기능 꺼짐
   const [masterOpen, setMasterOpen] = useState(false);
   useEffect(() => {
@@ -242,9 +243,20 @@ export function Home({ initialPollId }: { initialPollId?: string }) {
           aria-label="팀 선택"
           className="sticky top-0 z-20 -mx-4 mb-5 bg-canvas/85 px-4 py-2.5 backdrop-blur-xl supports-[backdrop-filter]:bg-canvas/70 sm:-mx-6 sm:px-6"
         >
-          {/* 팀이 많으면 옆으로 넘기거나, '펼치기'로 한 번에 보기 */}
+          {/* 팀이 많으면 옆으로 넘기거나, '펼치기'로 한 번에 보고 검색 */}
+          {teamsOpen && (
+            <input
+              value={teamQuery}
+              onChange={(e) => setTeamQuery(e.target.value)}
+              placeholder="팀 이름 검색"
+              aria-label="팀 이름 검색"
+              autoComplete="off"
+              autoFocus
+              className="mb-2 h-10 w-full rounded-xl border border-line bg-surface px-3.5 text-[15px] outline-none focus:border-ink/30"
+            />
+          )}
           <div className={cx("-mx-4 flex gap-2 px-4 sm:-mx-6 sm:px-6", teamsOpen ? "flex-wrap" : "no-scrollbar overflow-x-auto")}>
-            {[ALL, ...teams].map((t) => {
+            {[ALL, ...teams.filter((t) => !teamsOpen || !teamQuery.trim() || t.toLowerCase().includes(teamQuery.trim().toLowerCase()))].map((t) => {
               const on = team === t;
               const count = regionPolls.filter((p) => p.status === "open" && (t === ALL || p.team === t)).length;
               return (
@@ -270,11 +282,14 @@ export function Home({ initialPollId }: { initialPollId?: string }) {
             {teams.length > 4 && (
               <button
                 type="button"
-                onClick={() => setTeamsOpen((v) => !v)}
+                onClick={() => {
+                  setTeamsOpen((v) => !v);
+                  setTeamQuery("");
+                }}
                 aria-expanded={teamsOpen}
                 className="inline-flex h-10 shrink-0 items-center rounded-full border border-dashed border-ink/20 px-3.5 text-[13.5px] font-semibold text-ink-2"
               >
-                {teamsOpen ? "접기 ▴" : `팀 ${teams.length}개 모두 ▾`}
+                {teamsOpen ? "접기 ▴" : `🔍 팀 ${teams.length}개 모두 보기`}
               </button>
             )}
           </div>
