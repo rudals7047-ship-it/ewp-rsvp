@@ -287,12 +287,29 @@ function memoryStore(): Store {
   };
 }
 
+/**
+ * Upstash 연결 정보 찾기. Vercel 연동 시 접두어(예: STORAGE_)가 붙을 수 있어
+ * 표준 이름을 먼저 찾고, 없으면 *_KV_REST_API_URL / *_REDIS_REST_URL 형태를 찾는다.
+ * (읽기 전용 토큰 KV_REST_API_READ_ONLY_TOKEN 은 쓰기가 안 되므로 제외)
+ */
+function redisEnv() {
+  const env = process.env;
+  const pick = (suffixes: string[]) => {
+    for (const s of suffixes) if (env[s]) return env[s];
+    const key = Object.keys(env).find((k) => suffixes.some((s) => k.endsWith(`_${s}`)) && !k.includes("READ_ONLY") && env[k]);
+    return key ? env[key] : undefined;
+  };
+  return {
+    url: pick(["KV_REST_API_URL", "UPSTASH_REDIS_REST_URL", "REDIS_REST_URL"]),
+    token: pick(["KV_REST_API_TOKEN", "UPSTASH_REDIS_REST_TOKEN", "REDIS_REST_TOKEN"]),
+  };
+}
+
 let cached: Store | null = null;
 
 export function getStore(): Store {
   if (cached) return cached;
-  const url = process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL;
-  const token = process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN;
+  const { url, token } = redisEnv();
   cached = url && token ? redisStore(new Redis({ url, token })) : memoryStore();
   return cached;
 }
