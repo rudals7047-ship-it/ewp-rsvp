@@ -48,7 +48,7 @@ import type { PollDetail, Question } from "@/lib/types";
 import { ATTEND } from "@/lib/types";
 import { ChipsInput } from "./ChipsInput";
 import { IdentityBar, StageBar } from "./Flow";
-import { MenuSuggestions, PlaceInfo } from "./Places";
+import { MenuSuggestions, PlaceInfo, SaveMenus } from "./Places";
 import { SheetBody, SheetFooter } from "./Sheet";
 import { Button, Toggle, cx, flash, inputCls, reveal, toast } from "./ui";
 
@@ -801,8 +801,8 @@ function NextRound({
         placeholder="선택지 추가"
         emptyPlaceholder={isMeal ? `${place ?? "식당"} 메뉴 입력 (쉼표로 여러 개)` : "선택지 입력 (쉼표로 여러 개)"}
       />
-      {isMeal && place && poll.placeInfo[place] && options.some((o) => !placeMenus.some((m) => menuLabel(m) === o)) && (
-        <p className="mt-2 text-[12px] text-ink-3">직접 넣은 메뉴는 식당 정보에도 저장돼, 다음부터 탭 한 번으로 골라요.</p>
+      {isMeal && place && (
+        <SaveMenus placeId={poll.placeInfo[place]?.id} placeName={place} labels={options.filter((o) => !placeMenus.some((m) => menuLabel(m) === o))} />
       )}
       </div>
       {err && <p className="mt-2 text-[12.5px] font-medium text-danger">{err}</p>}

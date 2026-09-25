@@ -117,6 +117,9 @@ export const api = {
     menus: PlaceMenu[];
     naverId?: string;
   }) => request<{ place: Place }>("/api/places", { method: "POST", body: JSON.stringify(p) }),
+  addMenus: (id: string, menus: PlaceMenu[]) =>
+    request<{ place: Place; added: number }>("/api/places", { method: "POST", body: JSON.stringify({ action: "addMenus", id, menus }) }),
+  revertPlace: (id: string) => request<{ place: Place }>("/api/places", { method: "POST", body: JSON.stringify({ action: "revert", id }) }),
   rosters: (region: Region) => request<{ rosters: RosterSummary[] }>(`/api/rosters?region=${region}`),
   createRoster: (b: { region: Region; title: string; names: string[]; pin: string }) =>
     request<{ roster: RosterSummary }>("/api/rosters", { method: "POST", body: JSON.stringify(b) }),

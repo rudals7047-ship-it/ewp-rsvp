@@ -25,7 +25,7 @@ import { type Place, type Region, menuLabel, toSnap } from "@/lib/places";
 import type { QuestionKind, Template } from "@/lib/types";
 import { ChipsInput } from "./ChipsInput";
 import { RosterField } from "./Rosters";
-import { MenuSuggestions, PlacePicker } from "./Places";
+import { MenuSuggestions, PlacePicker, SaveMenus } from "./Places";
 import { PinPad } from "./PinPad";
 import { Sheet, SheetBody, SheetFooter } from "./Sheet";
 import { Button, Field, flash, IconButton, Segmented, Toggle, cx, inputCls, textareaCls, toast } from "./ui";
@@ -509,9 +509,7 @@ export function CreateSheet({
                               placeholder="메뉴 추가"
                               emptyPlaceholder={menuSource.length ? "목록에 없는 메뉴 직접 추가" : "예) 김치찌개, 된장찌개 (쉼표로 여러 개)"}
                             />
-                            {menus.some((m) => !suggested.has(m)) && (
-                              <p className="mt-2 text-[12px] text-ink-3">직접 넣은 메뉴는 식당 정보에도 저장돼, 다음부터 탭 한 번으로 골라요.</p>
-                            )}
+                            <SaveMenus placeId={fixedPlace[0]?.id} placeName={fixedPlace[0]?.name ?? ""} labels={menus.filter((m) => !suggested.has(m))} />
                             {menus.length > 0 && (
                               <div className="mt-3">
                                 <Toggle checked={menuMulti} onChange={setMenuMulti} label="복수 선택 허용" />

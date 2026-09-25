@@ -40,6 +40,8 @@ export interface Place {
   uses: number;
   /** 사용자가 수정한 시각 */
   editedAt?: number;
+  /** 직전 저장본 (잘못 고쳤을 때 되돌리기용) */
+  prev?: PlaceSnap;
 }
 
 /** 투표에 저장되는 식당 정보 스냅샷 (이후 공용 목록이 바뀌어도 투표 내용은 유지) */
@@ -53,6 +55,14 @@ export function toSnap(p: Place | PlaceSnap): PlaceSnap {
 
 export function menuLabel(m: PlaceMenu) {
   return (m.price ? `${m.name} (${m.price})` : m.name).slice(0, 40);
+}
+
+/** 선택지 라벨 "이름 (가격)" → 메뉴 */
+export function parseLabel(label: string): PlaceMenu {
+  const m = /^(.*?)\s*\(([^()]+)\)$/.exec(label.trim());
+  const name = (m ? m[1] : label).trim().slice(0, PLACE_LIMITS.menuName);
+  const price = m?.[2].trim().slice(0, PLACE_LIMITS.price);
+  return price ? { name, price } : { name };
 }
 
 export function naverUrl(p: Pick<Place, "name" | "naverId">, region?: Region) {
