@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="robots" content="noindex" />
+<title>모임 투표</title>
+<!-- GitHub Pages: /ewp-rsvp/p/<id> 같은 공유 링크를 앱의 같은 경로로 전달 -->
+<script>
+  var APP = "https://ewp-rsvp.vercel.app";
+  var path = location.pathname.replace(/^\/ewp-rsvp/, "") || "/";
+  location.replace(APP + path + location.search + location.hash);
+</script>
+</head>
+<body><a href="https://ewp-rsvp.vercel.app">모임 투표 열기</a></body>
+</html>

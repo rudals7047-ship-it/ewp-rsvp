@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="robots" content="noindex" />
+<title>모임 투표</title>
+<!--
+  GitHub Pages 진입용 안내 페이지.
+  Pages는 정적 파일만 호스팅하므로 실제 앱(투표 저장·PIN 검증)은 Vercel에서 실행되고,
+  이 페이지는 Pages 주소로 들어온 사람을 앱 주소로 보내준다.
+  앱 주소가 바뀌면 아래 APP 값과 404.html의 APP 값을 함께 수정.
+-->
+<script>
+  var APP = "https://ewp-rsvp.vercel.app";
+  location.replace(APP + location.search + location.hash);
+</script>
+<style>
+  :root { color-scheme: light; }
+  body { margin: 0; min-height: 100dvh; display: grid; place-items: center; background: #f4f3ef; color: #0e1116;
+    font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Noto Sans KR", sans-serif; }
+  main { text-align: center; padding: 24px; }
+  .mark { width: 56px; height: 56px; border-radius: 16px; background: #0e1116; display: grid; place-items: center; margin: 0 auto 20px; }
+  a { display: inline-block; margin-top: 16px; padding: 14px 22px; border-radius: 16px; background: #0e1116; color: #fff; text-decoration: none; font-weight: 600; }
+  p { color: #8b9098; font-size: 14px; }
+</style>
+</head>
+<body>
+<main>
+  <div class="mark"><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="#3ddc97" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5.5 12.5l4 4 9-9.5"/></svg></div>
+  <h1 style="font-size:20px;margin:0">모임 투표로 이동 중…</h1>
+  <p>자동으로 이동하지 않으면 아래 버튼을 눌러 주세요.</p>
+  <a id="go" href="https://ewp-rsvp.vercel.app">모임 투표 열기</a>
+</main>
+</body>
+</html>
