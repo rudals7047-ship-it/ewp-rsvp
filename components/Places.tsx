@@ -15,7 +15,7 @@ import {
   naverUrl,
   searchPlaces,
 } from "@/lib/places";
-import { Button, cx, inputCls, toast } from "./ui";
+import { Button, cx, flash, inputCls, reveal, toast } from "./ui";
 
 /* ---------- 데이터 ---------- */
 
@@ -181,7 +181,7 @@ export function PlacePicker({
               onFocus={() => {
                 setOpen(true);
                 // 모바일 키보드에 목록이 가리지 않도록 검색칸을 시트 위쪽으로 스크롤
-                setTimeout(() => box.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 250);
+                setTimeout(() => reveal(box.current, "start"), 250);
               }}
               onClick={() => setOpen(true)}
               onKeyDown={(e) => {
@@ -369,7 +369,7 @@ export function PlaceEditor({
         <Pencil className="size-4" /> {isNew ? "새 식당 추가" : "식당 정보 편집"}
       </p>
       <div className="space-y-2">
-        <input value={f.name} onChange={(e) => set("name", e.target.value)} maxLength={PLACE_LIMITS.name} aria-label="식당 이름" placeholder="식당 이름" className={cx(inputCls, "h-12 font-semibold")} />
+        <input id="pe-name" value={f.name} onChange={(e) => set("name", e.target.value)} maxLength={PLACE_LIMITS.name} aria-label="식당 이름" placeholder="식당 이름" className={cx(inputCls, "h-12 font-semibold")} />
         <div className="grid grid-cols-2 gap-2">
           <input value={f.category} onChange={(e) => set("category", e.target.value)} maxLength={PLACE_LIMITS.category} aria-label="분류" placeholder="분류 (예: 한식)" className={small} />
           <input value={f.phone} onChange={(e) => set("phone", e.target.value)} maxLength={PLACE_LIMITS.phone} aria-label="전화번호" placeholder="전화번호" inputMode="tel" className={small} />
@@ -399,7 +399,7 @@ export function PlaceEditor({
         <Button variant="secondary" size="md" onClick={onCancel}>
           취소
         </Button>
-        <Button size="md" loading={busy} disabled={!f.name.trim()} onClick={save}>
+        <Button size="md" loading={busy} onClick={() => (f.name.trim() ? save() : flash("pe-name", "식당 이름을 입력해 주세요"))}>
           저장
         </Button>
       </div>

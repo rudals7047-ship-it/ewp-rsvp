@@ -72,10 +72,12 @@ export function StepNav({
   // 현재 단계가 화면 밖(닫기 버튼 뒤)으로 밀리지 않도록 가운데로 스크롤
   const nav = useRef<HTMLElement>(null);
   useEffect(() => {
-    nav.current?.querySelector('[aria-current="step"]')?.scrollIntoView({ inline: "center", block: "nearest", behavior: "smooth" });
+    const n = nav.current;
+    const el = n?.querySelector<HTMLElement>('[aria-current="step"]');
+    if (n && el) n.scrollTo({ left: el.offsetLeft - n.clientWidth / 2 + el.offsetWidth / 2, behavior: "smooth" }); // 가로로만 이동
   }, [current]);
   return (
-    <nav ref={nav} aria-label="응답 단계" className="no-scrollbar flex items-center gap-1 overflow-x-auto">
+    <nav ref={nav} aria-label="응답 단계" className="no-scrollbar relative flex items-center gap-1 overflow-x-auto">
       {steps.map((s, i) => {
         const done = !!s.done;
         const can = !s.locked && i !== current && (i <= reached || done);

@@ -11,7 +11,7 @@ import { ATTEND } from "@/lib/types";
 import { IdentityBar, StepNav } from "./Flow";
 import { PlaceInfo } from "./Places";
 import { SheetBody, SheetFooter } from "./Sheet";
-import { Button, IconButton, cx, inputCls, toast } from "./ui";
+import { Button, IconButton, cx, flash, inputCls, toast } from "./ui";
 
 type Step = { key: "name" } | { key: "q"; q: Question };
 
@@ -185,6 +185,7 @@ export function VoteFlow({
                   title={proxy ? "누구의 응답을 입력할까요?" : poll.roster?.length && !typing ? "본인 이름을 선택하세요" : "이름을 알려주세요"}
                   sub={proxy ? "이미 응답한 사람을 고르면 그 응답을 수정해요. 본인도 나중에 직접 수정할 수 있어요." : "같은 이름으로 다시 응답하면 기존 응답이 수정돼요."}
                 />
+                <div id="name-area">
                 {poll.roster?.length && !typing ? (
                   <>
                     <div className="grid grid-cols-3 gap-2">
@@ -238,12 +239,15 @@ export function VoteFlow({
                       onChange={(e) => chooseName(e.target.value)}
                       onKeyDown={(e) => e.key === "Enter" && !e.nativeEvent.isComposing && name.trim() && !lockedName && next()}
                       placeholder="예) 김민준"
-                      autoComplete="name"
+                      // 브라우저 입력 기록(대리 입력한 이름 등)이 후보로 뜨지 않도록 자동완성 끔
+                      autoComplete="off"
+                      name={proxy ? "proxy-respondent" : "respondent"}
                       enterKeyHint="next"
                       className={cx(inputCls, "pl-12 text-[17px] font-medium")}
                     />
                   </div>
                 )}
+                </div>
                 {prev &&
                   (lockedName ? (
                     <p className="mt-3 flex items-start gap-1.5 rounded-xl bg-[#fdf5e3] px-3 py-2.5 text-[13px] font-medium leading-relaxed text-[#8a5a12]">
@@ -251,10 +255,24 @@ export function VoteFlow({
                       다른 기기에서 이미 응답한 이름이에요. 본인이라면 처음 응답한 기기에서 수정하거나, 관리자에게 초기화를 요청하세요.
                     </p>
                   ) : (
-                    <p className="mt-3 flex items-center gap-1.5 rounded-xl bg-accent-soft px-3 py-2.5 text-[13px] font-medium text-accent">
+                    <div className="mt-3 flex items-center gap-1.5 rounded-xl bg-accent-soft px-3 py-2.5 text-[13px] font-medium text-accent">
                       <Check className="size-4 shrink-0" strokeWidth={3} />
-                      {proxy ? `${prev.name}님의 기존 응답을 불러왔어요.` : "이전 응답을 불러왔어요. 수정 후 다시 저장할 수 있어요."}
-                    </p>
+                      <span className="flex-1">{proxy ? `${prev.name}님의 기존 응답을 불러왔어요.` : `${prev.name}님의 이전 응답을 불러왔어요.`}</span>
+                      {!proxy && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            // 한 기기를 여러 사람이 쓰는 경우: 이전 사람 이름을 지우고 새로 선택
+                            local.del(keys.name);
+                            chooseName("");
+                            setTyping(!poll.roster?.length);
+                          }}
+                          className="shrink-0 font-semibold text-ink-2 underline underline-offset-2"
+                        >
+                          다른 사람이에요
+                        </button>
+                      )}
+                    </div>
                   ))}
               </>
             ) : (
@@ -283,11 +301,22 @@ export function VoteFlow({
       {(step.key === "name" || current?.kind === "multi" || current?.kind === "text" || answers[current?.id ?? ""] !== undefined) && (
         <SheetFooter>
           {step.key === "name" ? (
-            <Button className="w-full" disabled={!name.trim() || lockedName} onClick={() => next()}>
+            <Button
+              className="w-full"
+              onClick={() => {
+                if (!name.trim()) return flash("name-area", poll.roster?.length && !typing ? "이름을 선택해 주세요" : "이름을 입력해 주세요");
+                if (lockedName) return flash("name-area", "다른 기기에서 이미 응답한 이름이에요");
+                next();
+              }}
+            >
               {prev && !lockedName ? "응답 수정하기" : "시작하기"}
             </Button>
           ) : current?.kind === "multi" ? (
-            <Button className="w-full" loading={busy} disabled={current.required && multiCount === 0} onClick={() => next()}>
+            <Button
+              className="w-full"
+              loading={busy}
+              onClick={() => (current.required && multiCount === 0 ? flash("options-area", "하나 이상 골라 주세요") : next())}
+            >
               {isLast ? "응답 제출" : "다음"}
               {multiCount > 0 && <span className="rounded-full bg-white/15 px-2 py-0.5 text-[13px]">{multiCount}개 선택</span>}
             </Button>
@@ -426,7 +455,7 @@ function QuestionView({
         title={q.title}
         sub={[q.optionGroups ? "고르신 식당의 메뉴만 보여드려요." : "", multi ? "여러 개를 고를 수 있어요." : ""].filter(Boolean).join(" ") || undefined}
       />
-      <div className="space-y-2">
+      <div id="options-area" className="space-y-2">
         {options.map((o, i) => {
           const on = selected.includes(o);
           // 식당별 묶음 제목 (식당 연계 메뉴일 때)
