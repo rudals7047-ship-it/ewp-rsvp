@@ -115,6 +115,11 @@ export function toDetail(p: Poll, responses: PollResponse[], requesterHash?: str
   };
 }
 
+/** 팀 이름 비교용: 띄어쓰기·대소문자 차이는 같은 팀으로 봄 ("회계 세무부" = "회계세무부") */
+export function teamKey(team: string) {
+  return team.replace(/\s+/g, "").toLowerCase();
+}
+
 export function nameKey(name: string) {
   return name.trim().replace(/\s+/g, " ").toLowerCase();
 }
@@ -215,7 +220,7 @@ export function parseRoster(v: unknown) {
 
 export function parseCreate(body: unknown): Parsed<CreateInput> {
   const b = (body ?? {}) as Record<string, unknown>;
-  const team = str(b.team, LIMITS.team);
+  const team = str(b.team, LIMITS.team).replace(/\s+/g, " ");
   const title = str(b.title, LIMITS.title);
   const pin = typeof b.pin === "string" ? b.pin : "";
   const template = b.template === "meal" ? "meal" : "general";

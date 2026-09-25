@@ -5,6 +5,7 @@ import { Database, MapPin, Plus, ShieldCheck, Sparkles } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, keys, local, session } from "@/lib/client";
 import { REGIONS, type Region, regionOf } from "@/lib/places";
+import { teamKey } from "@/lib/poll";
 import type { PollDetail, PollSummary } from "@/lib/types";
 import { CreateSheet } from "./CreateSheet";
 import { CardSkeleton, PollCard } from "./PollCard";
@@ -147,14 +148,15 @@ export function Home({ initialPollId }: { initialPollId?: string }) {
 
   const regionPolls = useMemo(() => (polls ?? []).filter((p) => p.region === region), [polls, region]);
 
+  // 띄어쓰기·대소문자만 다른 팀 이름은 하나로 합쳐 보여줌 (먼저 만든 표기 기준이 아니라 최근 투표 표기)
   const teams = useMemo(() => {
-    const seen = new Set<string>();
-    for (const p of regionPolls) seen.add(p.team);
-    if (team !== ALL) seen.add(team);
-    return [...seen];
+    const seen = new Map<string, string>();
+    for (const p of regionPolls) if (!seen.has(teamKey(p.team))) seen.set(teamKey(p.team), p.team);
+    if (team !== ALL && !seen.has(teamKey(team))) seen.set(teamKey(team), team);
+    return [...seen.values()];
   }, [regionPolls, team]);
 
-  const visible = useMemo(() => regionPolls.filter((p) => team === ALL || p.team === team), [regionPolls, team]);
+  const visible = useMemo(() => regionPolls.filter((p) => team === ALL || teamKey(p.team) === teamKey(team)), [regionPolls, team]);
   const live = visible.filter((p) => p.status === "open");
   const done = visible.filter((p) => p.status === "closed");
 
@@ -257,8 +259,8 @@ export function Home({ initialPollId }: { initialPollId?: string }) {
           )}
           <div className={cx("-mx-4 flex gap-2 px-4 sm:-mx-6 sm:px-6", teamsOpen ? "flex-wrap" : "no-scrollbar overflow-x-auto")}>
             {[ALL, ...teams.filter((t) => !teamsOpen || !teamQuery.trim() || t.toLowerCase().includes(teamQuery.trim().toLowerCase()))].map((t) => {
-              const on = team === t;
-              const count = regionPolls.filter((p) => p.status === "open" && (t === ALL || p.team === t)).length;
+              const on = t === ALL ? team === ALL : team !== ALL && teamKey(team) === teamKey(t);
+              const count = regionPolls.filter((p) => p.status === "open" && (t === ALL || teamKey(p.team) === teamKey(t))).length;
               return (
                 <button
                   key={t}
