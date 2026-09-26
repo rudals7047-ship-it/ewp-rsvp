@@ -1,4 +1,4 @@
-import { type PlaceSnap, type Region, menuLabel, parseSnap, regionOf } from "./places";
+import { DEFAULT_REGION, type PlaceSnap, type Region, menuLabel, parseSnap, regionOf } from "./places";
 import type { Answer, Poll, PollDetail, PollResponse, PollSummary, Question, QuestionKind, Stage, StageState } from "./types";
 import { ATTEND, ATTEND_OPTIONS } from "./types";
 
@@ -82,7 +82,7 @@ export function toSummary(p: Poll, responseCount: number): PollSummary {
     status: pollStatus(p),
     responseCount,
     round: p.round ?? 1,
-    region: p.region ?? "ulsan",
+    region: p.region ?? DEFAULT_REGION,
     stageLabel: label,
     stages,
   };

@@ -2,6 +2,7 @@
 
 import { BookOpen, ChevronRight, KeyRound, ShieldCheck, Users, Vote } from "lucide-react";
 import { Sheet, SheetBody, SheetFooter } from "./Sheet";
+import { REGIONS } from "@/lib/places";
 import { Button } from "./ui";
 
 type Section = { icon: React.ReactNode; title: string; rows: [string, string][] };
@@ -31,7 +32,8 @@ const SECTIONS: Section[] = [
     icon: <Users className="size-4" />,
     title: "사업장과 팀",
     rows: [
-      ["사업장", "상단에서 울산 / 당진을 고르면 그 사업장의 투표·팀·식당만 보여요."],
+      ["사업장", `상단에서 사업장(${REGIONS.map((r) => r.label).join("·")})을 고르면 그 사업장의 투표·팀·식당만 보여요.`],
+      ["다른 사업장", "다른 사업장도 추가할 수 있어요. 필요하면 사이트 관리자에게 알려 주세요."],
       ["팀 목록", "한국동서발전 홈페이지 조직도의 부서명을 미리 넣어 두었어요. 목록에 없는 팀은 직접 입력하면 돼요."],
       ["식당 목록", "자주 가는 식당과 메뉴·가격을 미리 넣어 두었어요. 틀린 정보는 식당을 고를 때 '편집'으로 고칠 수 있어요."],
     ],

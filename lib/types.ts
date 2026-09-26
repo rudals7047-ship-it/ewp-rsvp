@@ -42,7 +42,7 @@ export interface Poll {
   roster?: string[];
   /** 이미 정해진 장소 (선택) */
   place?: string;
-  /** 사업장 (울산/당진) */
+  /** 사업장 (lib/places.ts REGIONS) */
   region?: Region;
   /** 식당 정보 스냅샷: 선택지(식당 이름) 또는 place → 상세 */
   placeInfo?: Record<string, PlaceSnap>;

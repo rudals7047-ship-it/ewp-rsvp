@@ -73,7 +73,7 @@ function StatusBadge({ status, edited }: { status: PlaceStatus; edited?: boolean
   return s ? <span className={cx("shrink-0 rounded-md px-1.5 py-px text-[11px] font-semibold", s.cls)}>{s.label}</span> : null;
 }
 
-const shortAddr = (a: string) => a.replace(/^(울산|충남|충청남도)\s*/, "").split(" ").slice(0, 3).join(" ");
+const shortAddr = (a: string) => a.replace(/^\S*(특별시|광역시|특별자치시|특별자치도|도|서울|부산|대구|인천|광주|대전|울산|세종|경기|강원|충북|충남|전북|전남|경북|경남|제주)\s+/, "").split(" ").slice(0, 3).join(" ");
 
 /* ---------- 식당 선택기 (생성자용) ---------- */
 

@@ -4,7 +4,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { Database, MapPin, Plus, ShieldCheck, Sparkles } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, keys, local, session } from "@/lib/client";
-import { REGIONS, type Region, regionOf } from "@/lib/places";
+import { DEFAULT_REGION, REGIONS, type Region, regionOf } from "@/lib/places";
 import { teamKey } from "@/lib/poll";
 import type { PollDetail, PollSummary } from "@/lib/types";
 import { CreateSheet } from "./CreateSheet";
@@ -20,7 +20,14 @@ export function Home({ initialPollId }: { initialPollId?: string }) {
   const [polls, setPolls] = useState<PollSummary[] | null>(null);
   const [storage, setStorage] = useState<"redis" | "memory">("redis");
   const [team, setTeam] = useState<string>(ALL);
-  const [region, setRegion] = useState<Region>("ulsan");
+  const [region, setRegion] = useState<Region>(DEFAULT_REGION);
+  const regionBar = useRef<HTMLDivElement>(null);
+  // 사업장이 많아 가로로 넘칠 때 선택한 사업장이 보이도록 (페이지는 움직이지 않고 버튼 줄만)
+  useEffect(() => {
+    const bar = regionBar.current;
+    const el = bar?.querySelector<HTMLElement>('[aria-checked="true"]');
+    if (bar && el && bar.scrollWidth > bar.clientWidth) bar.scrollLeft = el.offsetLeft - (bar.clientWidth - el.offsetWidth) / 2;
+  }, [region]);
   const [openPoll, setOpenPoll] = useState<PollSummary | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [createKey, setCreateKey] = useState(0);
@@ -218,8 +225,8 @@ export function Home({ initialPollId }: { initialPollId?: string }) {
           </div>
         )}
 
-        {/* 사업장 선택 */}
-        <div className="mb-3 flex gap-1 rounded-2xl bg-ink/[0.05] p-1" role="radiogroup" aria-label="사업장">
+        {/* 사업장 선택: 3곳까지는 아이콘과 함께 균등 분할, 더 많으면 아이콘을 빼 한 줄에 맞추고 넘치면 가로 스크롤 (lib/places.ts REGIONS) */}
+        <div ref={regionBar} className="no-scrollbar mb-3 flex gap-1 overflow-x-auto rounded-2xl bg-ink/[0.05] p-1" role="radiogroup" aria-label="사업장">
           {REGIONS.map((r) => {
             const on = r.id === region;
             const open = (polls ?? []).filter((p) => p.region === r.id && p.status === "open").length;
@@ -229,10 +236,10 @@ export function Home({ initialPollId }: { initialPollId?: string }) {
                 role="radio"
                 aria-checked={on}
                 onClick={() => selectRegion(r.id)}
-                className={cx("relative flex h-11 flex-1 items-center justify-center gap-1.5 rounded-xl text-[14.5px] font-semibold transition", on ? "text-ink" : "text-ink-3 hover:text-ink-2")}
+                className={cx("relative flex h-11 min-w-16 flex-1 shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-xl px-3 text-[14.5px] font-semibold transition", on ? "text-ink" : "text-ink-3 hover:text-ink-2")}
               >
                 {on && <motion.span layoutId="region-pill" className="absolute inset-0 rounded-xl bg-surface shadow-soft" transition={{ type: "spring", damping: 30, stiffness: 400 }} />}
-                <MapPin className="relative size-4" />
+                {REGIONS.length <= 3 && <MapPin className="relative size-4" />}
                 <span className="relative">{r.label}</span>
                 {open > 0 && <span className="relative rounded-full bg-accent-soft px-1.5 text-[11.5px] font-bold text-accent tabular-nums">{open}</span>}
               </button>

@@ -1,6 +1,7 @@
 import { hashAdminPin, shortId, hashAdmin, hashPin, randomId } from "@/lib/auth";
 import { fail, json, readJson } from "@/lib/http";
 import { autoAdvance, parseCreate, teamKey, toSummary } from "@/lib/poll";
+import { DEFAULT_REGION } from "@/lib/places";
 import { overLimit } from "@/lib/ratelimit";
 import { getStore } from "@/lib/store";
 import { orgTeamList } from "@/lib/teams";
@@ -31,11 +32,11 @@ export async function POST(req: Request) {
   if (!parsed.ok) return fail(parsed.error);
   const { pin, adminPin, ...data } = parsed.data;
   // 이미 있는 팀과 띄어쓰기·대소문자만 다르면 기존 표기로 맞춤 (팀 중복 방지)
-  const same = (await store.listPolls(200)).find(({ poll: p }) => (p.region ?? "ulsan") === (data.region ?? "ulsan") && teamKey(p.team) === teamKey(data.team));
+  const same = (await store.listPolls(200)).find(({ poll: p }) => (p.region ?? DEFAULT_REGION) === (data.region ?? DEFAULT_REGION) && teamKey(p.team) === teamKey(data.team));
   if (same) data.team = same.poll.team;
   else {
     // 미리 만든 부서 목록과 같으면 목록의 표기로 (예: "회계 세무부" → "회계세무부")
-    const org = orgTeamList(data.region ?? "ulsan").find((t) => teamKey(t) === teamKey(data.team));
+    const org = orgTeamList(data.region ?? DEFAULT_REGION).find((t) => teamKey(t) === teamKey(data.team));
     if (org) data.team = org;
   }
 
