@@ -1,14 +1,22 @@
 /** 식당 공용 목록 (클라이언트·서버 공용) */
 
-export type Region = "ulsan" | "dangjin";
+/**
+ * 사업장 목록. 사업장을 늘릴 때는 여기에 한 줄만 추가하면 화면·API·관리 메뉴에 모두 반영됨
+ * - id: 영문 소문자 (링크 `?site=<id>`와 저장 데이터에 쓰이므로 한 번 정하면 바꾸지 않기)
+ * - label: 화면 표시 이름, city: 네이버 지도 검색에 붙일 지역명
+ * - 부서명은 lib/teams.ts, 초기 식당은 lib/places-seed.ts (둘 다 없어도 됨: 직접 입력·추가로 채워짐)
+ */
+export const REGIONS = [
+  { id: "ulsan", label: "울산", city: "울산" },
+  { id: "dangjin", label: "당진", city: "당진" },
+] as const satisfies readonly { id: string; label: string; city: string }[];
 
-export const REGIONS: { id: Region; label: string; short: string; city: string }[] = [
-  { id: "ulsan", label: "울산", short: "울산", city: "울산" },
-  { id: "dangjin", label: "당진", short: "당진", city: "당진" },
-];
+export type Region = (typeof REGIONS)[number]["id"];
+/** 사업장 값이 없던 예전 데이터·잘못된 링크는 첫 번째 사업장으로 */
+export const DEFAULT_REGION: Region = REGIONS[0].id;
 
-export const regionOf = (v: unknown): Region => (v === "dangjin" ? "dangjin" : "ulsan");
-export const regionLabel = (r: Region | undefined) => REGIONS.find((x) => x.id === (r ?? "ulsan"))!.label;
+export const regionOf = (v: unknown): Region => REGIONS.find((r) => r.id === v)?.id ?? DEFAULT_REGION;
+export const regionLabel = (r: Region | undefined) => REGIONS.find((x) => x.id === (r ?? DEFAULT_REGION))?.label ?? "";
 
 export interface PlaceMenu {
   name: string;

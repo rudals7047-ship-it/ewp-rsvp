@@ -4,9 +4,9 @@ import type { Region } from "./places";
  * 미리 만들어 둔 팀(부서) 목록. 한국동서발전 홈페이지 조직도·전화번호부(www.ewp.co.kr, 2026-09-25 조회) 기준.
  * - 울산: 본사 처·실·부 (지사·해외 파견 등 본사 밖 조직 제외)
  * - 당진: 당진발전본부 처·부. 여러 처에 같은 이름이 있는 부는 처 이름을 붙여 구분
- * 조직 개편 시 이 파일만 고치면 됨. 여기 없는 팀도 투표를 만들 때 직접 입력 가능
+ * 조직 개편 시 이 파일만 고치면 됨. 여기 없는 팀·사업장도 투표를 만들 때 직접 입력 가능
  */
-export const ORG_TEAMS: Record<Region, { group: string; teams: string[] }[]> = {
+export const ORG_TEAMS: Partial<Record<Region, { group: string; teams: string[] }[]>> = {
   ulsan: [
     { group: "안전경영단", teams: ["안전경영단", "중대재해예방실", "안전기획부", "산업안전부", "재난보건관리부", "안전혁신T/F"] },
     { group: "감사실", teams: ["감사실", "감사전략부", "종합감사부", "공직윤리감찰부"] },
@@ -39,4 +39,6 @@ export const ORG_TEAMS: Record<Region, { group: string; teams: string[] }[]> = {
   ],
 };
 
-export const orgTeamList = (region: Region) => ORG_TEAMS[region].flatMap((g) => g.teams);
+/** 부서 목록이 없는 사업장은 빈 목록 (팀은 직접 입력) */
+export const orgGroups = (region: Region) => ORG_TEAMS[region] ?? [];
+export const orgTeamList = (region: Region) => orgGroups(region).flatMap((g) => g.teams);

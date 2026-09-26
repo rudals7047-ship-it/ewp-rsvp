@@ -3,7 +3,7 @@
 import { KeyRound, LogOut, Pencil, Plus, ShieldCheck, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { ApiError, api, keys, session } from "@/lib/client";
-import { REGIONS, type Place, type Region, searchPlaces } from "@/lib/places";
+import { DEFAULT_REGION, REGIONS, type Place, type Region, searchPlaces } from "@/lib/places";
 import type { RosterSummary } from "@/lib/types";
 import { PlaceEditor, dropFromCache, usePlaces } from "./Places";
 import { Sheet, SheetBody } from "./Sheet";
@@ -70,7 +70,7 @@ function Login({ onDone }: { onDone: () => void }) {
 }
 
 function Console({ onLogout }: { onLogout: () => void }) {
-  const [region, setRegion] = useState<Region>("ulsan");
+  const [region, setRegion] = useState<Region>(DEFAULT_REGION);
   const [view, setView] = useState<"rosters" | "places">("rosters");
   return (
     <div className="space-y-4">

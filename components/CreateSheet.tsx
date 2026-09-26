@@ -22,7 +22,7 @@ import {
 import { useMemo, useState } from "react";
 import { ApiError, api, copyText, josa, pollUrl, shareText, fmtDate, keys, kstToIso, kstToday, local, shareLink, track } from "@/lib/client";
 import { LIMITS, teamKey } from "@/lib/poll";
-import { ORG_TEAMS, orgTeamList } from "@/lib/teams";
+import { orgGroups, orgTeamList } from "@/lib/teams";
 import { REGIONS, type Place, type Region, koIncludes, menuLabel, toSnap } from "@/lib/places";
 import type { QuestionKind, Template } from "@/lib/types";
 import { ChipsInput } from "./ChipsInput";
@@ -93,7 +93,7 @@ export function CreateSheet({
   // 팀은 자동으로 채우지 않음 (의도치 않은 팀으로 만들어지지 않게). 보고 있던 팀을 맨 앞에 보여주기만 함
   const [team, setTeam] = useState("");
   const [teamQuery, setTeamQuery] = useState("");
-  const [addingTeam, setAddingTeam] = useState(false);
+  const [typingTeam, setAddingTeam] = useState(false);
   const [teamBrowse, setTeamBrowse] = useState(false);
   // 미리 만든 부서 목록 + 이미 투표가 있는 팀 (띄어쓰기·대소문자 차이는 하나로)
   const allTeams = useMemo(() => {
@@ -101,6 +101,9 @@ export function CreateSheet({
     for (const t of [...orgTeamList(region), ...teams]) if (!seen.has(teamKey(t))) seen.set(teamKey(t), t);
     return [...seen.values()];
   }, [region, teams]);
+  // 고를 목록이 없는 사업장(부서 목록·기존 투표 없음)은 바로 이름 입력
+  const noTeamList = allTeams.length === 0;
+  const addingTeam = typingTeam || noTeamList;
   // 새 팀으로 입력한 이름이 기존 팀과 띄어쓰기·대소문자만 다르면 기존 팀을 씀
   const teamMatch = addingTeam && team.trim() ? allTeams.find((t) => teamKey(t) === teamKey(team)) : undefined;
   const finalTeam = (teamMatch ?? team).trim().replace(/\s+/g, " ");
@@ -342,7 +345,7 @@ export function CreateSheet({
               <SheetBody className="pb-6 pt-5">
                 <Head title={isMeal ? "모임 정보" : "투표 정보"} />
                 <div className="space-y-6">
-                  <Field label="팀" id="f-team" error={ferr("team")} hint={team && !addingTeam ? `선택: ${team}` : "직접 선택해 주세요"}>
+                  <Field label="팀" id="f-team" error={ferr("team")} hint={team && !addingTeam ? `선택: ${team}` : noTeamList ? "팀 이름을 입력해 주세요" : "직접 선택해 주세요"}>
                     {!addingTeam && (
                       <input
                         value={teamQuery}
@@ -388,14 +391,14 @@ export function CreateSheet({
                         선택: <span className="rounded-full bg-ink px-2.5 py-1 text-white">{team}</span>
                       </p>
                     )}
-                    {!addingTeam && !teamQuery.trim() && (
+                    {!addingTeam && !teamQuery.trim() && orgTeamList(region).length > 0 && (
                       <button type="button" onClick={() => setTeamBrowse((v) => !v)} className="mt-3 text-[13px] font-semibold text-ink-2 underline underline-offset-4">
                         {teamBrowse ? "전체 부서 목록 접기" : `전체 부서 목록 보기 (${REGIONS.find((r) => r.id === region)?.label} ${orgTeamList(region).length}곳)`}
                       </button>
                     )}
                     {!addingTeam && !teamQuery.trim() && teamBrowse && (
                       <div className="mt-2 max-h-72 space-y-3 overflow-y-auto rounded-2xl bg-ink/[0.03] p-3">
-                        {ORG_TEAMS[region].map((g) => (
+                        {orgGroups(region).map((g) => (
                           <div key={g.group}>
                             <p className="mb-1.5 text-[11.5px] font-bold text-ink-3">{g.group}</p>
                             <div className="flex flex-wrap gap-1.5">
@@ -418,7 +421,7 @@ export function CreateSheet({
                     )}
                     {addingTeam && (
                       <input
-                        autoFocus={teams.length > 0}
+                        autoFocus={!noTeamList}
                         value={team}
                         onChange={(e) => setTeam(e.target.value)}
                         maxLength={LIMITS.team}
@@ -426,7 +429,7 @@ export function CreateSheet({
                         className={cx(inputCls, "mt-2.5")}
                       />
                     )}
-                    {addingTeam && !teamMatch && (
+                    {addingTeam && !teamMatch && !noTeamList && (
                       <button
                         type="button"
                         onClick={() => {
