@@ -1,6 +1,6 @@
 import "server-only";
 import { Redis } from "@upstash/redis";
-import type { Place } from "./places";
+import type { Place, RegionInfo } from "./places";
 import type { RosterList } from "./types";
 import type { Poll, PollResponse } from "./types";
 
@@ -33,6 +33,9 @@ export interface Store {
   addPlaceUses(ids: string[]): Promise<void>;
   /** 참석자 명단 보관함 (실명은 PIN 인증 후에만 반환) */
   listRosters(): Promise<RosterList[]>;
+  /** 사용자가 추가한 지역 (기본 지역은 코드에 있음) */
+  listRegions(): Promise<RegionInfo[]>;
+  saveRegion(r: RegionInfo): Promise<void>;
   getRoster(id: string): Promise<RosterList | null>;
   saveRoster(r: RosterList): Promise<void>;
   deleteRoster(id: string): Promise<void>;
@@ -46,6 +49,7 @@ const SECRET = "app:secret";
 const PLACES = "places";
 const PLACE_USES = "place-uses";
 const ROSTERS = "rosters";
+const REGIONS_KEY = "regions";
 /** 예전(90일 자동 삭제) 버전에서 만료 시각이 걸린 투표·응답을 영구 보관으로 한 번 전환했다는 표시 */
 const NO_EXPIRE = "app:no-expire:v1";
 
@@ -165,6 +169,13 @@ function redisStore(redis: Redis): Store {
       const all = await redis.hgetall<Record<string, unknown>>(PLACE_USES);
       return Object.fromEntries(Object.entries(all ?? {}).map(([k, v]) => [k, Number(v) || 0]));
     },
+    async listRegions() {
+      const all = await redis.hgetall<Record<string, unknown>>(REGIONS_KEY);
+      return all ? Object.values(all).map((v) => parse<RegionInfo>(v)) : [];
+    },
+    async saveRegion(r) {
+      await redis.hset(REGIONS_KEY, { [r.id]: JSON.stringify(r) });
+    },
     async listRosters() {
       const all = await redis.hgetall<Record<string, unknown>>(ROSTERS);
       return all ? Object.values(all).map((v) => parse<RosterList>(v)) : [];
@@ -195,6 +206,7 @@ function redisStore(redis: Redis): Store {
 }
 
 interface Mem {
+  regions: Map<string, RegionInfo>;
   rosters: Map<string, RosterList>;
   places: Map<string, Place>;
   placeUses: Map<string, number>;
@@ -207,6 +219,7 @@ interface Mem {
 function memoryStore(): Store {
   const g = globalThis as unknown as { __mem?: Mem };
   const m = (g.__mem ??= {
+    regions: new Map(),
     rosters: new Map(),
     places: new Map(),
     placeUses: new Map(),
@@ -280,6 +293,12 @@ function memoryStore(): Store {
     },
     async placeUses() {
       return Object.fromEntries(m.placeUses);
+    },
+    async listRegions() {
+      return structuredClone([...(m.regions ??= new Map()).values()]);
+    },
+    async saveRegion(r) {
+      (m.regions ??= new Map()).set(r.id, structuredClone(r));
     },
     async listRosters() {
       return structuredClone([...m.rosters.values()]);

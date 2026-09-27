@@ -1,9 +1,9 @@
 "use client";
 
-import { KeyRound, LogOut, Pencil, Plus, ShieldCheck, Trash2 } from "lucide-react";
+import { EyeOff, KeyRound, LogOut, Merge, Pencil, Plus, ShieldCheck, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { ApiError, api, keys, session } from "@/lib/client";
-import { DEFAULT_REGION, REGIONS, type Place, type Region, searchPlaces } from "@/lib/places";
+import { BUILTIN_REGIONS, DEFAULT_REGION, type Place, type Region, type RegionInfo, searchPlaces } from "@/lib/places";
 import type { RosterSummary } from "@/lib/types";
 import { PlaceEditor, dropFromCache, usePlaces } from "./Places";
 import { Sheet, SheetBody } from "./Sheet";
@@ -13,7 +13,19 @@ import { Button, Segmented, cx, inputCls, toast } from "./ui";
  * 사이트 관리자(마스터): MASTER_KEY 환경변수로 로그인. 이 창에서만 2시간 유지.
  * 투표는 목록에서 열면 PIN 없이 관리 탭이 열리고, 여기서는 저장된 명단·식당을 정리
  */
-export function MasterSheet({ open, active, onClose, onChange }: { open: boolean; active: boolean; onClose: () => void; onChange: (v: boolean) => void }) {
+export function MasterSheet({
+  open,
+  active,
+  onClose,
+  onChange,
+  onRegionsChanged,
+}: {
+  open: boolean;
+  active: boolean;
+  onClose: () => void;
+  onChange: (v: boolean) => void;
+  onRegionsChanged?: () => void;
+}) {
   return (
     <Sheet open={open} onClose={onClose} label="사이트 관리">
       <SheetBody className="pb-6 pt-4 sm:pt-7">
@@ -26,7 +38,7 @@ export function MasterSheet({ open, active, onClose, onChange }: { open: boolean
             <p className="text-[12.5px] text-ink-3">투표 만든 사람과 별개인 전체 관리자용이에요</p>
           </div>
         </div>
-        {active ? <Console onLogout={() => onChange(false)} /> : <Login onDone={() => onChange(true)} />}
+        {active ? <Console onLogout={() => onChange(false)} onRegionsChanged={onRegionsChanged} /> : <Login onDone={() => onChange(true)} />}
       </SheetBody>
     </Sheet>
   );
@@ -69,26 +81,61 @@ function Login({ onDone }: { onDone: () => void }) {
   );
 }
 
-function Console({ onLogout }: { onLogout: () => void }) {
+function Console({ onLogout, onRegionsChanged }: { onLogout: () => void; onRegionsChanged?: () => void }) {
   const [region, setRegion] = useState<Region>(DEFAULT_REGION);
-  const [view, setView] = useState<"rosters" | "places">("rosters");
+  const [view, setView] = useState<"rosters" | "places" | "regions">("rosters");
+  const [regions, setRegions] = useState<RegionInfo[]>(BUILTIN_REGIONS);
+  const reloadRegions = () =>
+    api
+      .allRegions()
+      .then((r) => setRegions(r.regions))
+      .catch(() => {});
+  useEffect(() => {
+    reloadRegions();
+  }, []);
+  const active = regions.filter((r) => !r.hidden && !r.mergedInto);
   return (
     <div className="space-y-4">
       <ul className="space-y-1.5 rounded-2xl bg-ink/[0.04] px-4 py-3 text-[13px] leading-relaxed text-ink-2">
         <li>• <b>투표</b>: 목록에서 누르면 PIN 없이 열리고, 관리 탭에서 마감·다시 열기·삭제·대신 입력을 할 수 있어요</li>
         <li>• <b>명단</b>: PIN 없이 열어 수정하거나 삭제할 수 있어요</li>
         <li>• <b>식당</b>: 공용 목록의 식당을 추가·수정·삭제할 수 있어요 (이미 만든 투표에는 영향 없음)</li>
+        <li>• <b>지역</b>: 사용자가 만든 지역의 이름을 고치거나, 숨기거나, 다른 지역으로 합칠 수 있어요</li>
       </ul>
-      <Segmented value={region} onChange={setRegion} options={REGIONS.map((r) => ({ value: r.id, label: r.label }))} />
       <Segmented
         value={view}
         onChange={setView}
         options={[
-          { value: "rosters", label: "저장된 명단" },
-          { value: "places", label: "식당 목록" },
+          { value: "rosters", label: "명단" },
+          { value: "places", label: "식당" },
+          { value: "regions", label: "지역" },
         ]}
       />
-      {view === "rosters" ? <RosterAdmin region={region} /> : <PlaceAdmin region={region} />}
+      {view !== "regions" &&
+        (active.length <= 3 ? (
+          <Segmented value={region} onChange={setRegion} options={active.map((r) => ({ value: r.id, label: r.label }))} />
+        ) : (
+          <select value={region} onChange={(e) => setRegion(e.target.value)} aria-label="지역" className={inputCls}>
+            {active.map((r) => (
+              <option key={r.id} value={r.id}>
+                {r.label}
+              </option>
+            ))}
+          </select>
+        ))}
+      {view === "rosters" ? (
+        <RosterAdmin region={region} />
+      ) : view === "places" ? (
+        <PlaceAdmin region={region} />
+      ) : (
+        <RegionAdmin
+          regions={regions}
+          onChanged={() => {
+            reloadRegions();
+            onRegionsChanged?.();
+          }}
+        />
+      )}
       <Button
         variant="secondary"
         size="md"
@@ -236,6 +283,124 @@ function PlaceAdmin({ region }: { region: Region }) {
         </ul>
       )}
       <p className="mt-2 text-[12px] text-ink-3">식당 이름을 누르면 전화·주소·메뉴·가격을 고칠 수 있어요. 저장 전에 바뀌는 내용을 한 번 더 보여주고, 잘못 고쳤다면 &lsquo;직전 저장 내용으로 되돌리기&rsquo;로 복구돼요.</p>
+    </div>
+  );
+}
+
+function RegionAdmin({ regions, onChanged }: { regions: RegionInfo[]; onChanged: () => void }) {
+  const [editing, setEditing] = useState<string | null>(null);
+  const [label, setLabel] = useState("");
+  const [merging, setMerging] = useState<string | null>(null);
+  const [into, setInto] = useState("");
+  const [busy, setBusy] = useState(false);
+  const active = regions.filter((r) => !r.hidden && !r.mergedInto);
+  const nameOf = (id?: string) => regions.find((r) => r.id === id)?.label ?? "";
+  async function run(b: Parameters<typeof api.regionAdmin>[0], done: string) {
+    setBusy(true);
+    try {
+      await api.regionAdmin(b);
+      toast(done);
+      setEditing(null);
+      setMerging(null);
+      onChanged();
+    } catch (e) {
+      toast(e instanceof ApiError ? e.message : "처리하지 못했어요");
+    } finally {
+      setBusy(false);
+    }
+  }
+  const iconBtn = "flex size-9 items-center justify-center rounded-full text-ink-3 hover:bg-ink/[0.05] hover:text-ink";
+  return (
+    <div>
+      <ul className="divide-y divide-line rounded-2xl border border-line">
+        {regions.map((r) => (
+          <li key={r.id} className="px-4 py-2.5">
+            {editing === r.id ? (
+              <div className="flex gap-2">
+                <input value={label} onChange={(e) => setLabel(e.target.value)} maxLength={10} aria-label="지역 이름" className={cx(inputCls, "h-10 min-w-0 flex-1")} />
+                <Button size="md" className="h-10" loading={busy} onClick={() => run({ action: "rename", id: r.id, label }, "이름을 바꿨어요")}>
+                  저장
+                </Button>
+                <Button size="md" variant="ghost" className="h-10 px-3" onClick={() => setEditing(null)}>
+                  취소
+                </Button>
+              </div>
+            ) : merging === r.id ? (
+              <div className="space-y-2">
+                <p className="text-[13px] text-ink-2">
+                  &lsquo;{r.label}&rsquo;의 투표·명단·식당을 옮길 지역을 골라 주세요. 예전 링크도 새 지역으로 열려요.
+                </p>
+                <div className="flex gap-2">
+                  <select value={into} onChange={(e) => setInto(e.target.value)} aria-label="합칠 지역" className={cx(inputCls, "h-10 min-w-0 flex-1")}>
+                    <option value="">합칠 지역 선택</option>
+                    {active
+                      .filter((x) => x.id !== r.id)
+                      .map((x) => (
+                        <option key={x.id} value={x.id}>
+                          {x.label}
+                        </option>
+                      ))}
+                  </select>
+                  <Button size="md" variant="danger" className="h-10" loading={busy} disabled={!into} onClick={() => run({ action: "merge", id: r.id, into }, `'${nameOf(into)}' 지역으로 합쳤어요`)}>
+                    합치기
+                  </Button>
+                  <Button size="md" variant="ghost" className="h-10 px-3" onClick={() => setMerging(null)}>
+                    취소
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-center gap-1">
+                <div className="min-w-0 flex-1">
+                  <span className={cx("block truncate text-[14px] font-semibold", (r.hidden || r.mergedInto) && "text-ink-3 line-through")}>{r.label}</span>
+                  <span className="block text-[12px] text-ink-3">
+                    {r.builtin ? "기본 지역" : r.mergedInto ? `'${nameOf(r.mergedInto)}'에 합쳐짐` : r.hidden ? "숨김" : `추가됨 ${r.createdAt ? new Date(r.createdAt).toLocaleDateString("ko-KR") : ""}`}
+                  </span>
+                </div>
+                {!r.builtin && !r.mergedInto && (
+                  <>
+                    {!r.hidden && (
+                      <>
+                        <button
+                          type="button"
+                          aria-label={`${r.label} 이름 바꾸기`}
+                          onClick={() => {
+                            setEditing(r.id);
+                            setLabel(r.label);
+                          }}
+                          className={iconBtn}
+                        >
+                          <Pencil className="size-4" />
+                        </button>
+                        <button
+                          type="button"
+                          aria-label={`${r.label} 다른 지역으로 합치기`}
+                          onClick={() => {
+                            setMerging(r.id);
+                            setInto("");
+                          }}
+                          className={iconBtn}
+                        >
+                          <Merge className="size-4" />
+                        </button>
+                      </>
+                    )}
+                    <button
+                      type="button"
+                      aria-label={r.hidden ? `${r.label} 다시 보이기` : `${r.label} 숨기기`}
+                      onClick={() => run({ action: r.hidden ? "show" : "hide", id: r.id }, r.hidden ? "다시 보이게 했어요" : "숨겼어요")}
+                      className={cx(iconBtn, r.hidden && "text-ink")}
+                    >
+                      {r.hidden ? <span className="text-[12px] font-semibold">보이기</span> : <EyeOff className="size-4" />}
+                    </button>
+                  </>
+                )}
+              </div>
+            )}
+          </li>
+        ))}
+      </ul>
+      <p className="mt-2 text-[12px] leading-relaxed text-ink-3">기본 지역(울산·당진)은 바꿀 수 없어요. 숨긴 지역은 목록에서만 사라지고 투표 링크는 그대로 열려요.</p>
     </div>
   );
 }

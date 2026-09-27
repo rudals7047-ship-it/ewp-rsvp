@@ -23,7 +23,7 @@ import { useMemo, useState } from "react";
 import { ApiError, api, copyText, josa, pollUrl, shareText, fmtDate, keys, kstToIso, kstToday, local, shareLink, track } from "@/lib/client";
 import { LIMITS, teamKey } from "@/lib/poll";
 import { orgGroups, orgTeamList } from "@/lib/teams";
-import { REGIONS, type Place, type Region, koIncludes, menuLabel, toSnap } from "@/lib/places";
+import { type Place, type Region, koIncludes, menuLabel, regionLabel, toSnap } from "@/lib/places";
 import type { QuestionKind, Template } from "@/lib/types";
 import { ChipsInput } from "./ChipsInput";
 import { RosterField } from "./Rosters";
@@ -101,7 +101,7 @@ export function CreateSheet({
     for (const t of [...orgTeamList(region), ...teams]) if (!seen.has(teamKey(t))) seen.set(teamKey(t), t);
     return [...seen.values()];
   }, [region, teams]);
-  // 고를 목록이 없는 사업장(부서 목록·기존 투표 없음)은 바로 이름 입력
+  // 고를 목록이 없는 지역(부서 목록·기존 투표 없음)은 바로 이름 입력
   const noTeamList = allTeams.length === 0;
   const addingTeam = typingTeam || noTeamList;
   // 새 팀으로 입력한 이름이 기존 팀과 띄어쓰기·대소문자만 다르면 기존 팀을 씀
@@ -393,7 +393,7 @@ export function CreateSheet({
                     )}
                     {!addingTeam && !teamQuery.trim() && orgTeamList(region).length > 0 && (
                       <button type="button" onClick={() => setTeamBrowse((v) => !v)} className="mt-3 text-[13px] font-semibold text-ink-2 underline underline-offset-4">
-                        {teamBrowse ? "전체 부서 목록 접기" : `전체 부서 목록 보기 (${REGIONS.find((r) => r.id === region)?.label} ${orgTeamList(region).length}곳)`}
+                        {teamBrowse ? "전체 부서 목록 접기" : `전체 부서 목록 보기 (${regionLabel(region)} ${orgTeamList(region).length}곳)`}
                       </button>
                     )}
                     {!addingTeam && !teamQuery.trim() && teamBrowse && (

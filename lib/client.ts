@@ -1,7 +1,7 @@
 "use client";
 
 import { nameKey, visibleQuestions } from "./poll";
-import type { Place, PlaceMenu, Region } from "./places";
+import type { Place, PlaceMenu, Region, RegionInfo } from "./places";
 import type { PollDetail, PollSummary, Question, RosterSummary } from "./types";
 import { ATTEND } from "./types";
 
@@ -31,6 +31,8 @@ export const keys = {
   owner: "me:owner",
   team: "me:team",
   region: "me:region",
+  /** 이 기기에서 추가한 지역 (첫 투표 전에는 만든 사람에게만 보임) */
+  myRegions: "me:regions",
   access: (id: string) => `access:${id}`,
   admin: (id: string) => `admin:${id}`,
   /** 사이트 관리자 세션 (이 창에서만) */
@@ -87,7 +89,11 @@ async function request<T>(url: string, init: RequestInit = {}, id?: string): Pro
 }
 
 export const api = {
-  list: () => request<{ storage: "redis" | "memory"; polls: PollSummary[] }>("/api/polls"),
+  list: () => request<{ storage: "redis" | "memory"; polls: PollSummary[]; regions: RegionInfo[]; moved?: Record<string, string> }>("/api/polls"),
+  addRegion: (label: string) => request<{ region: RegionInfo; existed: boolean }>("/api/regions", { method: "POST", body: JSON.stringify({ label }) }),
+  allRegions: () => request<{ regions: RegionInfo[] }>("/api/regions?all=1"),
+  regionAdmin: (b: { action: "rename"; id: string; label: string } | { action: "hide" | "show"; id: string } | { action: "merge"; id: string; into: string }) =>
+    request<{ ok: true }>("/api/regions", { method: "POST", body: JSON.stringify(b) }),
   create: (body: unknown) =>
     request<{ id: string; adminToken: string }>("/api/polls", { method: "POST", body: JSON.stringify(body) }),
   unlock: (id: string, pin: string) =>
