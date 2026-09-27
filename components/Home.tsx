@@ -1,10 +1,10 @@
 "use client";
 
 import { AnimatePresence, motion } from "motion/react";
-import { Database, MapPin, Plus, ShieldCheck, Sparkles } from "lucide-react";
+import { Database, MapPin, Plus, ShieldCheck, Sparkles, UtensilsCrossed } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, keys, local, session } from "@/lib/client";
-import { DEFAULT_REGION, REGIONS, type Region, regionOf } from "@/lib/places";
+import { BUILTIN_REGIONS, DEFAULT_REGION, type Region, type RegionInfo, regionOf, setKnownRegions, sortRegions } from "@/lib/places";
 import { teamKey } from "@/lib/poll";
 import type { PollDetail, PollSummary } from "@/lib/types";
 import { CreateSheet } from "./CreateSheet";
@@ -12,6 +12,8 @@ import { CardSkeleton, PollCard } from "./PollCard";
 import { PollSheet } from "./PollSheet";
 import { MasterSheet } from "./Master";
 import { GuideSheet } from "./Guide";
+import { PlaceBook } from "./PlaceBook";
+import { RegionSheet, readMyRegions } from "./Regions";
 import { Button, Toaster, cx, toast, useNow } from "./ui";
 
 const ALL = "__all__";
@@ -21,13 +23,11 @@ export function Home({ initialPollId }: { initialPollId?: string }) {
   const [storage, setStorage] = useState<"redis" | "memory">("redis");
   const [team, setTeam] = useState<string>(ALL);
   const [region, setRegion] = useState<Region>(DEFAULT_REGION);
-  const regionBar = useRef<HTMLDivElement>(null);
-  // 사업장이 많아 가로로 넘칠 때 선택한 사업장이 보이도록 (페이지는 움직이지 않고 버튼 줄만)
-  useEffect(() => {
-    const bar = regionBar.current;
-    const el = bar?.querySelector<HTMLElement>('[aria-checked="true"]');
-    if (bar && el && bar.scrollWidth > bar.clientWidth) bar.scrollLeft = el.offsetLeft - (bar.clientWidth - el.offsetWidth) / 2;
-  }, [region]);
+  const [regions, setRegions] = useState<RegionInfo[]>(BUILTIN_REGIONS);
+  const [regionsLoaded, setRegionsLoaded] = useState(false);
+  const [myRegions, setMyRegions] = useState<string[]>([]);
+  const [regionSheet, setRegionSheet] = useState(false);
+  const [placeBook, setPlaceBook] = useState(false);
   const [openPoll, setOpenPoll] = useState<PollSummary | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [createKey, setCreateKey] = useState(0);
@@ -56,6 +56,13 @@ export function Home({ initialPollId }: { initialPollId?: string }) {
       const res = await api.list();
       setPolls(res.polls);
       setStorage(res.storage);
+      if (res.regions?.length) {
+        setRegions(res.regions);
+        setKnownRegions(res.regions);
+      }
+      // 합쳐진 지역을 보고 있었다면 합쳐진 곳으로
+      setRegion((r) => res.moved?.[r] ?? r);
+      setRegionsLoaded(true);
       return res.polls;
     } catch {
       setPolls((p) => {
@@ -72,6 +79,7 @@ export function Home({ initialPollId }: { initialPollId?: string }) {
     try {
       for (const k of Object.keys(localStorage)) if (k.startsWith("roster:")) localStorage.removeItem(k);
     } catch {}
+    setMyRegions(readMyRegions());
     const site = new URLSearchParams(location.search).get("site") ?? local.get(keys.region);
     if (site) setRegion(regionOf(site));
     const q = new URLSearchParams(location.search).get("team");
@@ -153,6 +161,35 @@ export function Home({ initialPollId }: { initialPollId?: string }) {
     history.replaceState(history.state, "", url);
   };
 
+  // 지역: 기본 지역·투표가 있는 지역·이 기기에서 만든 지역만 보임 (빈 지역이 모두의 화면을 채우지 않도록)
+  const regionStats = useMemo(() => {
+    const total: Record<string, number> = {};
+    const open: Record<string, number> = {};
+    for (const p of polls ?? []) {
+      total[p.region] = (total[p.region] ?? 0) + 1;
+      if (p.status === "open") open[p.region] = (open[p.region] ?? 0) + 1;
+    }
+    return { total, open };
+  }, [polls]);
+  const shownRegions = useMemo(
+    () => sortRegions(regions.filter((r) => r.builtin || regionStats.total[r.id] || myRegions.includes(r.id) || r.id === region), regionStats.total),
+    [regions, regionStats, myRegions, region],
+  );
+  // 없어진(숨김·합쳐진) 지역이나 잘못된 링크면 기본 지역으로
+  useEffect(() => {
+    if (regionsLoaded && !regions.some((r) => r.id === region)) setRegion(DEFAULT_REGION);
+  }, [regionsLoaded, regions, region]);
+  // 상단 줄에는 앞의 2곳 + 지금 고른 지역만. 나머지는 '+N' 버튼의 목록에서
+  const barRegions = useMemo(() => {
+    const head = shownRegions.slice(0, 2);
+    const cur = shownRegions.find((r) => r.id === region);
+    return cur && !head.includes(cur) ? [...head, cur] : head;
+  }, [shownRegions, region]);
+  const moreRegions = shownRegions.length - barRegions.length;
+  // 3칸일 때는 아이콘을 빼고 고른 지역을 넓게 (긴 이름이 잘리지 않도록)
+  const crowded = barRegions.length > 2;
+  const regionName = regions.find((r) => r.id === region)?.label ?? "";
+
   const regionPolls = useMemo(() => (polls ?? []).filter((p) => p.region === region), [polls, region]);
 
   // 띄어쓰기·대소문자만 다른 팀 이름은 하나로 합쳐 보여줌 (먼저 만든 표기 기준이 아니라 최근 투표 표기)
@@ -197,10 +234,19 @@ export function Home({ initialPollId }: { initialPollId?: string }) {
               <p className="text-[12px] font-medium text-ink-3">식사 모임 · 팀 투표 취합</p>
             </div>
           </div>
-          <div className="hidden sm:block">
-            <Button size="md" onClick={startCreate}>
-              <Plus className="size-5" /> 새 투표
-            </Button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setPlaceBook(true)}
+              className="inline-flex h-10 items-center gap-1.5 rounded-full bg-ink/[0.05] px-3.5 text-[13.5px] font-semibold text-ink-2 hover:bg-ink/[0.08]"
+            >
+              <UtensilsCrossed className="size-4" /> 식당
+            </button>
+            <div className="hidden sm:block">
+              <Button size="md" onClick={startCreate}>
+                <Plus className="size-5" /> 새 투표
+              </Button>
+            </div>
           </div>
         </header>
 
@@ -225,26 +271,36 @@ export function Home({ initialPollId }: { initialPollId?: string }) {
           </div>
         )}
 
-        {/* 사업장 선택: 3곳까지는 아이콘과 함께 균등 분할, 더 많으면 아이콘을 빼 한 줄에 맞추고 넘치면 가로 스크롤 (lib/places.ts REGIONS) */}
-        <div ref={regionBar} className="no-scrollbar mb-3 flex gap-1 overflow-x-auto rounded-2xl bg-ink/[0.05] p-1" role="radiogroup" aria-label="사업장">
-          {REGIONS.map((r) => {
-            const on = r.id === region;
-            const open = (polls ?? []).filter((p) => p.region === r.id && p.status === "open").length;
-            return (
-              <button
-                key={r.id}
-                role="radio"
-                aria-checked={on}
-                onClick={() => selectRegion(r.id)}
-                className={cx("relative flex h-11 min-w-16 flex-1 shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-xl px-3 text-[14.5px] font-semibold transition", on ? "text-ink" : "text-ink-3 hover:text-ink-2")}
-              >
-                {on && <motion.span layoutId="region-pill" className="absolute inset-0 rounded-xl bg-surface shadow-soft" transition={{ type: "spring", damping: 30, stiffness: 400 }} />}
-                {REGIONS.length <= 3 && <MapPin className="relative size-4" />}
-                <span className="relative">{r.label}</span>
-                {open > 0 && <span className="relative rounded-full bg-accent-soft px-1.5 text-[11.5px] font-bold text-accent tabular-nums">{open}</span>}
-              </button>
-            );
-          })}
+        {/* 지역 선택: 지역이 늘어나도 상단은 최대 3칸 + '+N' 버튼으로 고정 (나머지·추가는 목록 시트에서) */}
+        <div className="mb-3 flex gap-1 rounded-2xl bg-ink/[0.05] p-1">
+          <div className="flex min-w-0 flex-1 gap-1" role="radiogroup" aria-label="지역">
+            {barRegions.map((r) => {
+              const on = r.id === region;
+              const open = regionStats.open[r.id] ?? 0;
+              return (
+                <button
+                  key={r.id}
+                  role="radio"
+                  aria-checked={on}
+                  onClick={() => selectRegion(r.id)}
+                  className={cx("relative flex h-11 min-w-0 items-center justify-center gap-1.5 rounded-xl px-2 text-[14.5px] font-semibold transition", crowded && on ? "flex-[1.8]" : "flex-1", on ? "text-ink" : "text-ink-3 hover:text-ink-2")}
+                >
+                  {on && <motion.span layoutId="region-pill" className="absolute inset-0 rounded-xl bg-surface shadow-soft" transition={{ type: "spring", damping: 30, stiffness: 400 }} />}
+                  {!crowded && <MapPin className="relative size-4 shrink-0" />}
+                  <span className="relative truncate">{r.label}</span>
+                  {open > 0 && <span className="relative rounded-full bg-accent-soft px-1.5 text-[11.5px] font-bold text-accent tabular-nums">{open}</span>}
+                </button>
+              );
+            })}
+          </div>
+          <button
+            type="button"
+            onClick={() => setRegionSheet(true)}
+            aria-label={moreRegions > 0 ? `다른 지역 ${moreRegions}곳 보기 · 지역 추가` : "지역 추가"}
+            className="flex h-11 min-w-11 shrink-0 items-center justify-center rounded-xl px-2.5 text-[13.5px] font-bold text-ink-3 transition hover:bg-surface/60 hover:text-ink-2"
+          >
+            {moreRegions > 0 ? `+${moreRegions}` : <Plus className="size-[18px]" strokeWidth={2.4} />}
+          </button>
         </div>
 
         {/* 팀 선택 */}
@@ -397,10 +453,29 @@ export function Home({ initialPollId }: { initialPollId?: string }) {
             : undefined
         }
       />
+      <RegionSheet
+        open={regionSheet}
+        onClose={() => setRegionSheet(false)}
+        regions={shownRegions}
+        allRegions={regions}
+        current={region}
+        stats={regionStats}
+        onSelect={(id) => {
+          selectRegion(id);
+          setRegionSheet(false);
+        }}
+        onAdded={(r) => {
+          setRegions((rs) => (rs.some((x) => x.id === r.id) ? rs : [...rs, r]));
+          setKnownRegions([...regions.filter((x) => x.id !== r.id), r]);
+          setMyRegions(readMyRegions());
+        }}
+      />
+      <PlaceBook open={placeBook} onClose={() => setPlaceBook(false)} region={region} regionName={regionName} />
       <MasterSheet
         open={masterOpen}
         active={!!masterOn}
         onClose={() => setMasterOpen(false)}
+        onRegionsChanged={load}
         onChange={(v) => {
           setMasterOn(v);
           force((n) => n + 1);

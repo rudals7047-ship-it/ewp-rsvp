@@ -3,6 +3,7 @@ import { overLimit } from "@/lib/ratelimit";
 import { fail, json, readJson } from "@/lib/http";
 import { PLACE_LIMITS, type Place, parseMenus, parseSnap, regionOf, toSnap } from "@/lib/places";
 import { getPlace, getPlaceAny, getPlaces } from "@/lib/places-server";
+import { resolveRegion } from "@/lib/regions-server";
 import { getStore } from "@/lib/store";
 
 export async function GET(req: Request) {
@@ -50,9 +51,11 @@ export async function POST(req: Request) {
   const snap = parseSnap(body);
   if (!snap) return fail("식당 이름을 입력해 주세요.");
   const existing = snap.id ? await getPlace(snap.id) : null;
+  const region = existing ? existing.region : await resolveRegion(regionOf(body?.region));
+  if (!region) return fail("없는 지역이에요. 새로고침 후 다시 시도해 주세요.");
   const place: Place = existing
     ? { ...existing, ...snap, id: existing.id, naverId: snap.naverId ?? existing.naverId, prev: toSnap(existing), editedAt: Date.now() }
-    : { ...snap, id: `u${randomId(8)}`, region: regionOf(body?.region), status: "user", uses: 0, editedAt: Date.now() };
+    : { ...snap, id: `u${randomId(8)}`, region, status: "user", uses: 0, editedAt: Date.now() };
   // 사용 횟수는 별도 집계라 저장본에는 넣지 않음
   await store.savePlace({ ...place, uses: 0 });
   return json({ place: (await getPlace(place.id)) ?? place });

@@ -2,6 +2,7 @@ import { hashRosterPin, randomId } from "@/lib/auth";
 import { fail, json, readJson } from "@/lib/http";
 import { LIMITS, parseRoster } from "@/lib/poll";
 import { regionOf } from "@/lib/places";
+import { resolveRegion } from "@/lib/regions-server";
 import { overLimit } from "@/lib/ratelimit";
 import { getStore } from "@/lib/store";
 import type { RosterList, RosterSummary } from "@/lib/types";
@@ -25,10 +26,12 @@ export async function POST(req: Request) {
   if (!title) return fail("명단 이름을 입력해 주세요.");
   if (!/^\d{4}$/.test(pin)) return fail("PIN은 숫자 4자리여야 해요.");
   if (!names) return fail("이름을 1명 이상 입력해 주세요.");
+  const region = await resolveRegion(regionOf(b.region));
+  if (!region) return fail("없는 지역이에요. 새로고침 후 다시 시도해 주세요.");
   const pinSalt = randomId(9);
   const r: RosterList = {
     id: randomId(8),
-    region: regionOf(b.region),
+    region,
     title,
     names,
     pinSalt,

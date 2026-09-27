@@ -3,13 +3,14 @@ import { fail, json, readJson } from "@/lib/http";
 import { autoAdvance, parseCreate, teamKey, toSummary } from "@/lib/poll";
 import { DEFAULT_REGION } from "@/lib/places";
 import { overLimit } from "@/lib/ratelimit";
+import { listRegions, regionMoves, resolveRegion } from "@/lib/regions-server";
 import { getStore } from "@/lib/store";
 import { orgTeamList } from "@/lib/teams";
 import type { Poll } from "@/lib/types";
 
 export async function GET() {
   const store = getStore();
-  const rows = await store.listPolls(200);
+  const [rows, regions, moved] = await Promise.all([store.listPolls(200), listRegions(), regionMoves()]);
   // 마감이 지난 식당 투표는 목록에서도 메뉴 투표 단계로 보이게
   for (const row of rows) {
     const p = row.poll;
@@ -19,6 +20,8 @@ export async function GET() {
   }
   return json({
     storage: store.kind,
+    regions,
+    moved,
     polls: rows.map(({ poll, responseCount }) => toSummary(poll, responseCount)),
   });
 }
@@ -31,6 +34,9 @@ export async function POST(req: Request) {
   const parsed = parseCreate(await readJson(req));
   if (!parsed.ok) return fail(parsed.error);
   const { pin, adminPin, ...data } = parsed.data;
+  const region = await resolveRegion(data.region ?? DEFAULT_REGION);
+  if (!region) return fail("없는 지역이에요. 새로고침 후 다시 시도해 주세요.");
+  data.region = region;
   // 이미 있는 팀과 띄어쓰기·대소문자만 다르면 기존 표기로 맞춤 (팀 중복 방지)
   const same = (await store.listPolls(200)).find(({ poll: p }) => (p.region ?? DEFAULT_REGION) === (data.region ?? DEFAULT_REGION) && teamKey(p.team) === teamKey(data.team));
   if (same) data.team = same.poll.team;

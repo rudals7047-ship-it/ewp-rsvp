@@ -1,22 +1,59 @@
 /** 식당 공용 목록 (클라이언트·서버 공용) */
 
 /**
- * 사업장 목록. 사업장을 늘릴 때는 여기에 한 줄만 추가하면 화면·API·관리 메뉴에 모두 반영됨
- * - id: 영문 소문자 (링크 `?site=<id>`와 저장 데이터에 쓰이므로 한 번 정하면 바꾸지 않기)
- * - label: 화면 표시 이름, city: 네이버 지도 검색에 붙일 지역명
- * - 부서명은 lib/teams.ts, 초기 식당은 lib/places-seed.ts (둘 다 없어도 됨: 직접 입력·추가로 채워짐)
+ * 지역 (투표·팀·식당 목록을 나누는 단위)
+ * - 기본 지역: 아래 BUILTIN_REGIONS (부서 목록 lib/teams.ts, 초기 식당 lib/places-seed.ts 포함)
+ * - 그 밖의 지역: 누구나 홈에서 추가 (DB 저장, id는 r + 영문·숫자 6자)
+ * - id는 링크(`?site=<id>`)와 저장 데이터에 쓰이므로 한 번 정하면 바꾸지 않음
  */
-export const REGIONS = [
-  { id: "ulsan", label: "울산", city: "울산" },
-  { id: "dangjin", label: "당진", city: "당진" },
-] as const satisfies readonly { id: string; label: string; city: string }[];
+export interface RegionInfo {
+  id: string;
+  label: string;
+  /** 네이버 지도 검색에 붙일 지역명 (없으면 label) */
+  city?: string;
+  builtin?: boolean;
+  createdAt?: number;
+  /** 사이트 관리자가 숨김 */
+  hidden?: boolean;
+  /** 다른 지역으로 합쳐짐 (예전 링크는 합쳐진 지역으로 이동) */
+  mergedInto?: string;
+}
 
-export type Region = (typeof REGIONS)[number]["id"];
-/** 사업장 값이 없던 예전 데이터·잘못된 링크는 첫 번째 사업장으로 */
-export const DEFAULT_REGION: Region = REGIONS[0].id;
+export type Region = string;
 
-export const regionOf = (v: unknown): Region => REGIONS.find((r) => r.id === v)?.id ?? DEFAULT_REGION;
-export const regionLabel = (r: Region | undefined) => REGIONS.find((x) => x.id === (r ?? DEFAULT_REGION))?.label ?? "";
+export const BUILTIN_REGIONS: RegionInfo[] = [
+  { id: "ulsan", label: "울산", city: "울산", builtin: true },
+  { id: "dangjin", label: "당진", city: "당진", builtin: true },
+];
+/** 지역 값이 없던 예전 데이터·잘못된 링크는 첫 번째 기본 지역으로 */
+export const DEFAULT_REGION: Region = BUILTIN_REGIONS[0].id;
+export const REGION_LIMITS = { label: 10 };
+
+const REGION_ID = /^[a-z][a-z0-9]{1,15}$/;
+/** 형식만 확인 (실제로 있는 지역인지는 서버에서 저장할 때 확인) */
+export const regionOf = (v: unknown): Region => (typeof v === "string" && REGION_ID.test(v) ? v : DEFAULT_REGION);
+/** 지역 이름 비교용: 띄어쓰기·대소문자 무시 */
+export const regionKey = (label: string) => label.replace(/\s+/g, "").toLowerCase();
+
+/**
+ * 화면 표시 순서. 지금은 기본 지역(울산 → 당진) 먼저, 그다음 추가된 순
+ * 나중에 투표 수 순으로 바꾸려면 여기만 고치면 됨 (pollCounts: 지역별 투표 수)
+ */
+export function sortRegions(list: RegionInfo[], _pollCounts?: Record<string, number>) {
+  const order = (r: RegionInfo) => {
+    const b = BUILTIN_REGIONS.findIndex((x) => x.id === r.id);
+    return b >= 0 ? b : BUILTIN_REGIONS.length;
+  };
+  return [...list].sort((a, b) => order(a) - order(b) || (a.createdAt ?? 0) - (b.createdAt ?? 0));
+}
+
+// 화면 곳곳(식당 링크 등)에서 지역 이름을 찾을 수 있도록 마지막으로 받은 지역 목록을 기억
+let known: RegionInfo[] = BUILTIN_REGIONS;
+export const setKnownRegions = (list: RegionInfo[]) => {
+  if (list.length) known = list;
+};
+export const regionInfo = (r: Region | undefined) => known.find((x) => x.id === (r ?? DEFAULT_REGION));
+export const regionLabel = (r: Region | undefined) => regionInfo(r)?.label ?? "";
 
 export interface PlaceMenu {
   name: string;
@@ -25,7 +62,7 @@ export interface PlaceMenu {
 
 /**
  * verified: 네이버에서 1곳으로 정확히 일치
- * estimated: 동명 업소 중 사업장 인근으로 추정
+ * estimated: 동명 업소 중 사업장(지역) 인근으로 추정
  * unverified: 네이버에서 찾지 못함
  * user: 사용자가 추가
  */
@@ -82,7 +119,8 @@ export function parseLabel(label: string): PlaceMenu {
 
 export function naverUrl(p: Pick<Place, "name" | "naverId">, region?: Region) {
   if (p.naverId) return `https://m.place.naver.com/restaurant/${p.naverId}/home`;
-  const city = REGIONS.find((r) => r.id === region)?.city ?? "";
+  const info = region ? regionInfo(region) : undefined;
+  const city = info?.city ?? info?.label ?? "";
   return `https://m.search.naver.com/search.naver?query=${encodeURIComponent(`${p.name} ${city}`.trim())}`;
 }
 
