@@ -17,7 +17,8 @@ export const viewport: Viewport = {
   interactiveWidget: "resizes-content",
 };
 
-const goat = process.env.NEXT_PUBLIC_GOATCOUNTER_CODE;
+// GoatCounter 코드는 페이지 소스에 그대로 공개되는 값이라 기본값을 둠. 환경변수로 다르게 지정하면 그 값이 우선
+const goat = process.env.NEXT_PUBLIC_GOATCOUNTER_CODE || "ewp-rsvp";
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
