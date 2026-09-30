@@ -65,7 +65,7 @@ GitHub Pages(저장소 설정 한 번으로 켜는 방식)는 **정적 파일만
 1. **가져오기** — https://vercel.com/new → GitHub 계정 연결 → `ewp-rsvp` 저장소 **Import** → **Deploy** (설정 변경 불필요)
 2. **저장소 연결 (필수)** — 프로젝트 → **Storage** → **Upstash for Redis**(무료) → Create → 이 프로젝트에 Connect
    - `KV_REST_API_URL`, `KV_REST_API_TOKEN` 환경변수가 자동으로 추가됩니다.
-3. **트래픽 확인 (선택)** — https://www.goatcounter.com 무료 가입 → 코드 지정(예: `ewp-rsvp`) → Vercel **Settings → Environment Variables**에 `NEXT_PUBLIC_GOATCOUNTER_CODE=ewp-rsvp`
+3. **트래픽 확인 (기본 켜짐)** — 통계는 https://ewp-rsvp.goatcounter.com 에서 봅니다(코드 `ewp-rsvp`가 기본값). 다른 GoatCounter 계정을 쓰려면 Vercel **Settings → Environment Variables**에 `NEXT_PUBLIC_GOATCOUNTER_CODE=<코드>`를 넣고 재배포
 4. **(권장) 비밀키** — 같은 곳에 `AUTH_SECRET` = 임의의 긴 문자열 (미설정 시 Redis에 자동 생성·보관)
    - **(선택) 사이트 관리자** — `MASTER_KEY` = 8자 이상 비밀 문구. 설정하면 홈 하단 '이용 안내' 맨 아래에 '사이트 관리'가 생기고, 로그인하면 모든 투표를 PIN 없이 열어 마감·삭제, 저장된 명단 열기·수정·삭제, 공용 식당 삭제, 추가된 지역 정리를 할 수 있어요 (이 창에서 2시간 유지)
 5. 환경변수를 바꾼 뒤에는 **Deployments → Redeploy** 1회
