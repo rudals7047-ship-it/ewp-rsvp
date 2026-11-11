@@ -69,5 +69,6 @@ export async function POST(req: Request) {
   // 사용한 식당은 공용 목록에서 위로 올라오도록 사용 횟수 증가
   const ids = Object.values(poll.placeInfo ?? {}).map((p) => p.id).filter(Boolean);
   if (ids.length) await store.addPlaceUses([...new Set(ids)]).catch(() => {});
-  return json({ id, adminToken }, 201);
+  // 공유 문구(단계 목록)를 바로 만들 수 있도록 단계도 함께 돌려줌
+  return json({ id, adminToken, stages: toSummary(poll, 0).stages }, 201);
 }

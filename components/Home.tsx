@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, keys, local, session } from "@/lib/client";
 import { BUILTIN_REGIONS, DEFAULT_REGION, type Region, type RegionInfo, regionOf, setKnownRegions, sortRegions } from "@/lib/places";
 import { teamKey } from "@/lib/poll";
+import { TEAM_SITE, pollPath } from "@/lib/site";
 import type { PollDetail, PollSummary } from "@/lib/types";
 import { CreateSheet } from "./CreateSheet";
 import { CardSkeleton, PollCard } from "./PollCard";
@@ -18,11 +19,15 @@ import { Button, Toaster, cx, toast, useNow } from "./ui";
 
 const ALL = "__all__";
 
-export function Home({ initialPollId }: { initialPollId?: string }) {
+/** 목록 화면 경로: 전용 도메인은 /, 본 사이트의 전용 화면은 /t */
+const homePath = () => (typeof location !== "undefined" && location.pathname.startsWith("/t") && location.hostname !== TEAM_SITE.host ? "/t" : "/");
+
+/** teamMode: 회계세무부 전용 화면 (lib/site.ts). 지역·팀 고정, 선택 줄 숨김 */
+export function Home({ initialPollId, teamMode = false }: { initialPollId?: string; teamMode?: boolean }) {
   const [polls, setPolls] = useState<PollSummary[] | null>(null);
   const [storage, setStorage] = useState<"redis" | "memory">("redis");
-  const [team, setTeam] = useState<string>(ALL);
-  const [region, setRegion] = useState<Region>(DEFAULT_REGION);
+  const [team, setTeam] = useState<string>(teamMode ? TEAM_SITE.team : ALL);
+  const [region, setRegion] = useState<Region>(teamMode ? TEAM_SITE.region : DEFAULT_REGION);
   const [regions, setRegions] = useState<RegionInfo[]>(BUILTIN_REGIONS);
   const [regionsLoaded, setRegionsLoaded] = useState(false);
   const [myRegions, setMyRegions] = useState<string[]>([]);
@@ -80,11 +85,13 @@ export function Home({ initialPollId }: { initialPollId?: string }) {
       for (const k of Object.keys(localStorage)) if (k.startsWith("roster:")) localStorage.removeItem(k);
     } catch {}
     setMyRegions(readMyRegions());
-    const site = new URLSearchParams(location.search).get("site") ?? local.get(keys.region);
-    if (site) setRegion(regionOf(site));
-    const q = new URLSearchParams(location.search).get("team");
-    const saved = q ?? local.get(keys.team);
-    if (saved) setTeam(saved);
+    if (!teamMode) {
+      const site = new URLSearchParams(location.search).get("site") ?? local.get(keys.region);
+      if (site) setRegion(regionOf(site));
+      const q = new URLSearchParams(location.search).get("team");
+      const saved = q ?? local.get(keys.team);
+      if (saved) setTeam(saved);
+    }
     const m = location.hash.match(/admin=([\w-]+)/);
     if (m && initialPollId) {
       local.set(keys.admin(initialPollId), m[1]);
@@ -92,7 +99,7 @@ export function Home({ initialPollId }: { initialPollId?: string }) {
       toast("관리자 권한이 이 기기에 저장됐어요");
     }
     load();
-  }, [initialPollId, load]);
+  }, [initialPollId, load, teamMode]);
 
   // 주기적 갱신
   useEffect(() => {
@@ -115,7 +122,7 @@ export function Home({ initialPollId }: { initialPollId?: string }) {
       setOpenPoll(p);
     } else {
       toast("투표를 찾을 수 없어요");
-      history.replaceState(null, "", "/");
+      history.replaceState(null, "", homePath());
     }
   }, [polls]);
 
@@ -130,13 +137,13 @@ export function Home({ initialPollId }: { initialPollId?: string }) {
   }, []);
 
   const openCard = (p: PollSummary) => {
-    history.pushState({ sheet: p.id }, "", `/p/${p.id}`);
+    history.pushState({ sheet: p.id }, "", pollPath(p.id));
     setOpenPoll(p);
   };
   const closeCard = useCallback(() => {
     setOpenPoll(null);
     if (history.state?.sheet) history.back();
-    else if (location.pathname !== "/") history.replaceState(null, "", "/");
+    else if (location.pathname !== homePath()) history.replaceState(null, "", homePath());
     force((n) => n + 1); // 응답함/관리자 배지 갱신
   }, []);
 
@@ -230,8 +237,8 @@ export function Home({ initialPollId }: { initialPollId?: string }) {
               </svg>
             </span>
             <div className="leading-tight">
-              <p className="text-[17px] font-bold tracking-tight">모임 투표</p>
-              <p className="text-[12px] font-medium text-ink-3">식사 모임 · 팀 투표 취합</p>
+              <p className="text-[17px] font-bold tracking-tight">{teamMode ? TEAM_SITE.team : "모임 투표"}</p>
+              <p className="text-[12px] font-medium text-ink-3">{teamMode ? "식사 모임 · 식당 → 메뉴" : "식사 모임 · 팀 투표 취합"}</p>
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -271,6 +278,7 @@ export function Home({ initialPollId }: { initialPollId?: string }) {
           </div>
         )}
 
+        {!teamMode && (<>
         {/* 지역 선택: 지역이 늘어나도 상단은 최대 3칸 + '+N' 버튼으로 고정 (나머지·추가는 목록 시트에서) */}
         <div className="mb-3 flex gap-1 rounded-2xl bg-ink/[0.05] p-1">
           <div className="flex min-w-0 flex-1 gap-1" role="radiogroup" aria-label="지역">
@@ -359,6 +367,7 @@ export function Home({ initialPollId }: { initialPollId?: string }) {
             )}
           </div>
         </nav>
+        </>)}
 
         <div className="mb-6 flex items-center gap-2 text-[12.5px] font-medium text-ink-3">
           <ShieldCheck className="size-4 text-accent" />
@@ -494,8 +503,10 @@ export function Home({ initialPollId }: { initialPollId?: string }) {
         teams={teams}
         defaultTeam={team === ALL ? null : team}
         region={region}
+        fixedTeam={teamMode ? TEAM_SITE.team : undefined}
+        rosterTitle={teamMode ? TEAM_SITE.rosterTitle : undefined}
         onCreated={async (id, t) => {
-          if (team !== ALL && team !== t) selectTeam(t);
+          if (!teamMode && team !== ALL && team !== t) selectTeam(t);
           await load();
           force((n) => n + 1);
           void id;

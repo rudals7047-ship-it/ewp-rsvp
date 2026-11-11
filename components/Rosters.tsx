@@ -3,7 +3,7 @@
 import { AnimatePresence, motion } from "motion/react";
 import { Check, Lock, Save, Users } from "lucide-react";
 import { useEffect, useState } from "react";
-import { ApiError, api, isMaster } from "@/lib/client";
+import { ApiError, api, isMaster, plainDigits } from "@/lib/client";
 import { LIMITS } from "@/lib/poll";
 import type { Region } from "@/lib/places";
 import type { RosterSummary } from "@/lib/types";
@@ -40,7 +40,7 @@ function PinInput({
       aria-label={label}
       placeholder="PIN"
       value={value}
-      onChange={(e) => onChange(e.target.value.replace(/\D/g, "").slice(0, 4))}
+      onChange={(e) => onChange(plainDigits(e.target.value).replace(/\D/g, "").slice(0, 4))}
       onKeyDown={(e) => e.key === "Enter" && value.length === 4 && onEnter?.()}
       className={cx(pinCls, invalid && "bg-danger/5 ring-2 ring-danger")}
     />
@@ -56,11 +56,14 @@ export function RosterField({
   names,
   onChange,
   defaultTitle,
+  autoTitle,
 }: {
   region: Region;
   names: string[];
   onChange: (v: string[]) => void;
   defaultTitle: string;
+  /** 이 제목의 명단을 바로 PIN 입력 상태로 펼쳐 둠 (팀 전용 사이트) */
+  autoTitle?: string;
 }) {
   const [lists, setLists] = useState<RosterSummary[] | null>(null);
   const [opening, setOpening] = useState<string | null>(null);
@@ -78,9 +81,13 @@ export function RosterField({
   useEffect(() => {
     api
       .rosters(region)
-      .then(({ rosters }) => setLists(rosters))
+      .then(({ rosters }) => {
+        setLists(rosters);
+        const auto = autoTitle && rosters.find((r) => r.title === autoTitle);
+        if (auto) setOpening((o) => o ?? auto.id);
+      })
       .catch(() => setLists([]));
-  }, [region]);
+  }, [region, autoTitle]);
 
   async function open(r: RosterSummary) {
     if (pin.length !== 4 && !isMaster()) {

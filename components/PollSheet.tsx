@@ -4,7 +4,7 @@ import confetti from "canvas-confetti";
 import { motion } from "motion/react";
 import { BarChart3, ChevronDown, Crown, Loader2, PencilLine, UserRound, Users } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ApiError, api, canAdmin, fmtDate, josa, keys, local, progressTable, relUntil, session, track, vibrate } from "@/lib/client";
+import { ApiError, api, canAdmin, fmtDate, josa, keys, local, progressTable, relUntil, session, sharePin, track, vibrate } from "@/lib/client";
 import { pendingQuestions } from "@/lib/poll";
 import type { Answer, PollDetail, PollSummary, Stage } from "@/lib/types";
 import { StageBar, stageText } from "./Flow";
@@ -137,6 +137,7 @@ export function PollSheet({
       try {
         const { token, poll } = await api.unlock(id, pin);
         session.set(keys.access(id), token);
+        sharePin.seen(id, pin); // 이 창에서 공유 문구를 만들 때 PIN을 다시 묻지 않도록 (창을 닫으면 사라짐)
         setPinMsg(null);
         accept(poll);
         track("pin-unlock");
