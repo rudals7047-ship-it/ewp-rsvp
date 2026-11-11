@@ -2,7 +2,8 @@
 
 import { nameKey, visibleQuestions } from "./poll";
 import type { Place, PlaceMenu, Region, RegionInfo } from "./places";
-import type { PollDetail, PollSummary, Question, RosterSummary } from "./types";
+import type { PollDetail, PollSummary, Question, RosterSummary, Stage } from "./types";
+import { pollPath } from "./site";
 import { ATTEND } from "./types";
 
 /* ---------- 브라우저 저장소 (실패해도 동작하도록) ---------- */
@@ -95,7 +96,7 @@ export const api = {
   regionAdmin: (b: { action: "rename"; id: string; label: string } | { action: "hide" | "show"; id: string } | { action: "merge"; id: string; into: string }) =>
     request<{ ok: true }>("/api/regions", { method: "POST", body: JSON.stringify(b) }),
   create: (body: unknown) =>
-    request<{ id: string; adminToken: string }>("/api/polls", { method: "POST", body: JSON.stringify(body) }),
+    request<{ id: string; adminToken: string; stages?: Stage[] }>("/api/polls", { method: "POST", body: JSON.stringify(body) }),
   unlock: (id: string, pin: string) =>
     request<{ token: string; poll: PollDetail }>(
       `/api/polls/${id}/unlock`,
@@ -333,10 +334,61 @@ export function summaryText(poll: PollDetail) {
   return lines.join("\n").trim();
 }
 
-/** 공유용 링크: 짧은 경로 /p/<id> */
+/** 공유용 링크: 짧은 경로 /p/<id> (회계세무부 전용 주소는 /<id>) */
 export function pollUrl(id: string) {
-  return `${location.origin}/p/${id}`;
+  return `${location.origin}${pollPath(id)}`;
 }
+
+/* ---------- 카톡용 짧은 공유 문구 (회계세무부 전용) ---------- */
+
+/** 카톡은 굵게 표시가 안 되므로 숫자를 수학용 굵은 숫자(𝟬~𝟵)로 바꿔 눈에 띄게 */
+export const boldDigits = (s: string) => s.replace(/[0-9]/g, (d) => String.fromCodePoint(0x1d7ec + Number(d)));
+/** 붙여넣은 굵은 숫자·전각 숫자를 보통 숫자로 (PIN 입력칸용) */
+export const plainDigits = (s: string) =>
+  s.replace(/[\u{1D7CE}-\u{1D7FF}]/gu, (c) => String((c.codePointAt(0)! - 0x1d7ce) % 10)).replace(/[０-９]/g, (c) => String(c.charCodeAt(0) - 0xff10));
+
+/** "11/12(수) 17:00" */
+export function shortDate(iso: string) {
+  const parts = new Intl.DateTimeFormat("ko-KR", { timeZone: TZ, month: "numeric", day: "numeric", weekday: "short", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(new Date(iso));
+  const g = (t: string) => parts.find((x) => x.type === t)?.value ?? "";
+  return `${g("month")}/${g("day")}(${g("weekday")}) ${g("hour")}:${g("minute")}`;
+}
+
+const STEP_LABEL: Record<string, string> = { "식당 투표": "식당 선택", "장소 확정": "식당", "식당·메뉴 투표": "식당·메뉴 선택" };
+
+/**
+ * 한 줄이 짧은 카톡 공유 문구. 지금 단계는 【】로, PIN·기한 숫자는 굵은 숫자로 강조
+ * 예) 🍽 11월 12일 (수) 점심 / Step 1: 【식당 선택】 / Step 2: 메뉴 선택 / PIN: 𝟭𝟮𝟯𝟰 / 기한: 𝟭𝟭/𝟭𝟮(수) 𝟭𝟳:𝟬𝟬 / 주소
+ */
+export function kakaoText(p: { title: string; stages: Stage[]; deadline?: string; eventAt?: string; status?: string }, url: string, pin?: string) {
+  const closed = p.status === "closed";
+  const lines = [`🍽 ${p.title}`];
+  const steps = p.stages.filter((s) => s.label !== "마감");
+  steps.forEach((s, i) => {
+    const label = STEP_LABEL[s.label] ?? s.label;
+    const head = `Step ${i + 1}: `;
+    if (s.state === "current" && !closed) lines.push(`${head}【${label}】`);
+    else if (s.state === "todo" && !closed) lines.push(`${head}${label}`);
+    else lines.push(`${head}${label} ✔${s.detail ? ` ${s.detail}` : ""}`);
+  });
+  if (closed) lines.push("【마감】");
+  else {
+    lines.push(`PIN: ${pin ? boldDigits(pin) : "담당자에게 확인"}`);
+    // 기한: 식당 단계는 식당 투표 마감, 메뉴 단계(또는 마감이 지난 뒤)는 모임 시각까지
+    const menuNow = steps.some((s) => s.state === "current" && s.label === "메뉴 선택");
+    const end = !menuNow && p.deadline && Date.parse(p.deadline) > Date.now() ? p.deadline : p.eventAt;
+    if (end) lines.push(`기한: ${boldDigits(shortDate(end))}`);
+  }
+  lines.push(url.replace(/^https?:\/\//, ""));
+  return lines.join("\n");
+}
+
+/** 투표를 만든 기기에만 참여 PIN을 기억 (다음 단계 공유 문구에 다시 넣기 위해. 서버에는 해시만 있음) */
+export const sharePin = {
+  get: (id: string) => local.get(`sharepin:${id}`) ?? session.get(`sharepin:${id}`) ?? undefined,
+  remember: (id: string, pin: string) => local.set(`sharepin:${id}`, pin),
+  seen: (id: string, pin: string) => session.set(`sharepin:${id}`, pin),
+};
 
 /** 공유 메시지: 무엇을·어느 단계인지·언제까지를 한눈에 */
 export function shareText(p: { team: string; title: string; stageLabel?: string; eventAt?: string; deadline?: string }) {

@@ -20,11 +20,11 @@ import {
   X,
 } from "lucide-react";
 import { useMemo, useState } from "react";
-import { ApiError, api, copyText, josa, pollUrl, shareText, fmtDate, keys, kstToIso, kstToday, local, shareLink, track } from "@/lib/client";
+import { ApiError, api, copyText, josa, kakaoText, pollUrl, sharePin, shareText, fmtDate, keys, kstToIso, kstToday, local, shareLink, track } from "@/lib/client";
 import { LIMITS, teamKey } from "@/lib/poll";
 import { orgGroups, orgTeamList } from "@/lib/teams";
 import { type Place, type Region, koIncludes, menuLabel, regionLabel, toSnap } from "@/lib/places";
-import type { QuestionKind, Template } from "@/lib/types";
+import type { QuestionKind, Stage, Template } from "@/lib/types";
 import { ChipsInput } from "./ChipsInput";
 import { RosterField } from "./Rosters";
 import { MenuSuggestions, PlacePicker, SaveMenus } from "./Places";
@@ -51,7 +51,7 @@ function generalQuestions(): DraftQ[] {
 
 const SLOTS = { lunch: "12:00", dinner: "18:30" } as const;
 
-type Created = { id: string; adminToken: string; title: string; team: string; menuLater: boolean; stageLabel: string; deadline?: string };
+type Created = { id: string; adminToken: string; title: string; team: string; menuLater: boolean; stageLabel: string; deadline?: string; eventAt?: string; stages?: Stage[] };
 
 
 /** "YYYY-MM-DD" 날짜 이동 */
@@ -79,6 +79,8 @@ export function CreateSheet({
   defaultTeam,
   region,
   onCreated,
+  fixedTeam,
+  rosterTitle,
 }: {
   open: boolean;
   onClose: () => void;
@@ -86,12 +88,16 @@ export function CreateSheet({
   defaultTeam: string | null;
   region: Region;
   onCreated: (id: string, team: string) => void;
+  /** 팀 전용 사이트: 팀 고정 (팀 칸 숨김) */
+  fixedTeam?: string;
+  /** 팀 전용 사이트: 명단 보관함에서 이 제목의 명단을 바로 불러오도록 */
+  rosterTitle?: string;
 }) {
   const [step, setStep] = useState<Step>("type");
   const [dir, setDir] = useState(1);
   const [template, setTemplate] = useState<Template>("meal");
   // 팀은 자동으로 채우지 않음 (의도치 않은 팀으로 만들어지지 않게). 보고 있던 팀을 맨 앞에 보여주기만 함
-  const [team, setTeam] = useState("");
+  const [team, setTeam] = useState(fixedTeam ?? "");
   const [teamQuery, setTeamQuery] = useState("");
   const [typingTeam, setAddingTeam] = useState(false);
   const [teamBrowse, setTeamBrowse] = useState(false);
@@ -257,6 +263,7 @@ export function CreateSheet({
       };
       const res = await api.create(body);
       local.set(keys.admin(res.id), res.adminToken);
+      if (fixedTeam) sharePin.remember(res.id, pin); // 다음 단계(메뉴) 공유 문구에 PIN을 다시 넣기 위해 만든 기기에만 기억
       local.set(keys.team, body.team);
       setCreated({
         ...res,
@@ -264,6 +271,7 @@ export function CreateSheet({
         team: body.team,
         menuLater: isMeal && placeMode === "vote" && menuLater,
         deadline: deadlineIso,
+        eventAt,
         stageLabel: isMeal && placeMode === "vote" && candidates.length ? "식당 투표 중" : isMeal && askMenu && menus.length ? "메뉴 선택 중" : isMeal ? "참석 확인 중" : "투표 중",
       });
       track("poll-created");
@@ -345,6 +353,12 @@ export function CreateSheet({
               <SheetBody className="pb-6 pt-5">
                 <Head title={isMeal ? "모임 정보" : "투표 정보"} />
                 <div className="space-y-6">
+                  {fixedTeam ? (
+                    <p className="flex items-center justify-between rounded-2xl bg-ink/[0.04] px-4 py-3 text-[14px]">
+                      <span className="font-semibold text-ink-3">팀</span>
+                      <b className="font-bold">{fixedTeam}</b>
+                    </p>
+                  ) : (
                   <Field label="팀" id="f-team" error={ferr("team")} hint={team && !addingTeam ? `선택: ${team}` : noTeamList ? "팀 이름을 입력해 주세요" : "직접 선택해 주세요"}>
                     {!addingTeam && (
                       <input
@@ -457,9 +471,10 @@ export function CreateSheet({
                       </p>
                     )}
                   </Field>
+                  )}
 
                   <Field label="참여 대상 명단" hint={roster.length ? `${roster.length}명` : "선택"}>
-                    <RosterField region={region} names={roster} onChange={setRoster} defaultTitle={team.trim()} />
+                    <RosterField region={region} names={roster} onChange={setRoster} defaultTitle={team.trim()} autoTitle={rosterTitle} />
                     <p className="mt-2 text-[12.5px] leading-relaxed text-ink-3">
                       입력하면 참여자는 이름을 탭해서 고르고, 결과에서 미응답자를 확인할 수 있어요. 명단은 PIN을 입력한 사람만 볼 수 있어요.
                     </p>
@@ -861,7 +876,7 @@ export function CreateSheet({
             </SheetBody>
           )}
 
-          {step === "done" && created && <CreatedView created={created} pin={pin} adminPin={adminPin} onClose={close} />}
+          {step === "done" && created && <CreatedView created={created} pin={pin} adminPin={adminPin} onClose={close} kakao={!!fixedTeam} />}
         </motion.div>
       </AnimatePresence>
     </Sheet>
@@ -1061,14 +1076,18 @@ function CreatedView({
   pin,
   adminPin,
   onClose,
+  kakao,
 }: {
   created: Created;
   pin: string;
   adminPin: string;
   onClose: () => void;
+  /** 팀 전용 사이트: 카톡용 짧은 문구 */
+  kakao?: boolean;
 }) {
   const url = typeof window !== "undefined" ? pollUrl(created.id) : "";
   const baseText = shareText({ team: created.team, title: created.title, stageLabel: created.stageLabel });
+  const kakaoMsg = kakao && url ? kakaoText({ title: created.title, stages: created.stages ?? [], deadline: created.deadline, eventAt: created.eventAt }, url, pin) : "";
   return (
     <>
       <SheetBody className="pb-6 pt-8">
@@ -1099,6 +1118,22 @@ function CreatedView({
           <p className="mt-3 break-all text-[13px] text-white/60">{url}</p>
         </div>
 
+        {kakao ? (
+          <div className="mt-3">
+            <pre className="whitespace-pre-wrap rounded-2xl bg-[#fee500]/25 p-4 font-sans text-[14px] leading-relaxed text-ink">{kakaoMsg}</pre>
+            <Button
+              className="mt-2 w-full"
+              size="md"
+              onClick={async () => {
+                const ok = await copyText(kakaoMsg);
+                toast(ok ? "카톡 공유 문구를 복사했어요. 단톡방에 붙여넣으세요" : "복사에 실패했어요");
+                track("kakao-copy");
+              }}
+            >
+              <ClipboardCopy className="size-4" /> 카톡 공유 문구 복사
+            </Button>
+          </div>
+        ) : (
         <div className="mt-3 grid gap-2">
           <Button
             variant="secondary"
@@ -1121,6 +1156,7 @@ function CreatedView({
             <ClipboardCopy className="size-4" /> PIN 포함 메시지 복사
           </Button>
         </div>
+        )}
 
         {created.menuLater && (
           <div className="mt-5 rounded-2xl bg-accent-soft p-4 text-[13px] leading-relaxed text-[#0b6b51]">

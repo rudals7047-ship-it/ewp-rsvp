@@ -39,13 +39,16 @@ import {
   relUntil,
   session,
   openExternal,
+  kakaoText,
   pollUrl,
+  sharePin,
   shareText,
   shareLink,
   summaryText,
   tally,
   track,
 } from "@/lib/client";
+import { isTeamSite } from "@/lib/site";
 import { menuLabel, naverUrl } from "@/lib/places";
 import { LIMITS, nameKey } from "@/lib/poll";
 import type { PollDetail, Question } from "@/lib/types";
@@ -257,6 +260,12 @@ export function Results({
               size="md"
               onClick={async () => {
                 // 개인정보: 공유 메시지에는 미응답자 실명 대신 인원수만
+                if (isTeamSite()) {
+                  const msg = kakaoText(poll, pollUrl(poll.id), sharePin.get(poll.id));
+                  const ok = await copyText(prog.pending.length ? msg.replace(/\n(?=[^\n]*$)/, `\n🙋 미응답 ${prog.pending.length}명\n`) : msg);
+                  toast(ok ? "카톡 공유 문구를 복사했어요" : "복사에 실패했어요");
+                  return;
+                }
                 const r = await shareLink(
                   pollUrl(poll.id),
                   poll.title,
@@ -948,6 +957,12 @@ function MenuStage({
         <button
           type="button"
           onClick={async () => {
+            if (isTeamSite()) {
+              const ok = await copyText(kakaoText(poll, pollUrl(poll.id), sharePin.get(poll.id)));
+              toast(ok ? "메뉴 선택 안내 문구를 복사했어요. 단톡방에 붙여넣으세요" : "복사에 실패했어요");
+              track("menu-announce");
+              return;
+            }
             const r = await shareLink(
               pollUrl(poll.id),
               poll.title,
