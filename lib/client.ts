@@ -358,7 +358,7 @@ const STEP_LABEL: Record<string, string> = { "식당 투표": "식당 선택", "
 
 /**
  * 한 줄이 짧은 카톡 공유 문구. 지금 단계는 【】로, PIN·기한 숫자는 굵은 숫자로 강조
- * 예) 🍽 11월 12일 (수) 점심 / Step 1: 【식당 선택】 / Step 2: 메뉴 선택 / PIN: 𝟭𝟮𝟯𝟰 / 기한: 𝟭𝟭/𝟭𝟮(수) 𝟭𝟳:𝟬𝟬 / 주소
+ * 예) 🍽 11월 12일 (수) 점심 / 👉 Step 1: 【식당 선택】 / Step 2: 메뉴 선택 (추후 요청) / PIN: 𝟭𝟮𝟯𝟰 / 기한: 𝟭𝟭/𝟭𝟮(수) 𝟭𝟳:𝟬𝟬 / 링크
  */
 export function kakaoText(p: { title: string; stages: Stage[]; deadline?: string; eventAt?: string; status?: string }, url: string, pin?: string) {
   const closed = p.status === "closed";
@@ -367,8 +367,9 @@ export function kakaoText(p: { title: string; stages: Stage[]; deadline?: string
   steps.forEach((s, i) => {
     const label = STEP_LABEL[s.label] ?? s.label;
     const head = `Step ${i + 1}: `;
-    if (s.state === "current" && !closed) lines.push(`${head}【${label}】`);
-    else if (s.state === "todo" && !closed) lines.push(`${head}${label}`);
+    // 지금 단계는 👉 + 【】로 강조, 아직 안 열린 메뉴 단계는 '추후 요청'으로 표시 (한 줄에 들어가게 짧게)
+    if (s.state === "current" && !closed) lines.push(`👉 ${head}【${label}】`);
+    else if (s.state === "todo" && !closed) lines.push(`${head}${label}${label === "메뉴 선택" ? " (추후 요청)" : ""}`);
     else lines.push(`${head}${label} ✔${s.detail ? ` ${s.detail}` : ""}`);
   });
   if (closed) lines.push("【마감】");
@@ -379,7 +380,7 @@ export function kakaoText(p: { title: string; stages: Stage[]; deadline?: string
     const end = !menuNow && p.deadline && Date.parse(p.deadline) > Date.now() ? p.deadline : p.eventAt;
     if (end) lines.push(`기한: ${boldDigits(shortDate(end))}`);
   }
-  lines.push(url.replace(/^https?:\/\//, ""));
+  lines.push(url); // https:// 를 붙여 두어야 카톡에서 눌러지는 링크가 됨
   return lines.join("\n");
 }
 
