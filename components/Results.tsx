@@ -663,10 +663,12 @@ function Bars({
   const leader = t[0]?.count ? t[0].option : null;
   // 메뉴는 1등을 뽑는 투표가 아니라 개인별 주문 집계
   const isMenu = q.topic === "menu";
-  // 메뉴는 선택지가 많아 주문 없는 메뉴는 접어 둠 (실제 주문이 한눈에 보이게)
+  // 선택지가 많은 질문(메뉴, 전체 식당 중에서 고르는 식당 투표)은 표가 없는 선택지를 접어 둠 (실제 결과가 한눈에 보이게)
+  const manyPlaces = q.topic === "place" && t.length > 12;
+  const collapse = isMenu || manyPlaces;
   const [showZero, setShowZero] = useState(false);
-  const zeros = isMenu ? t.filter((x) => x.count === 0).length : 0;
-  const list = isMenu && !showZero ? t.filter((x) => x.count > 0) : t;
+  const zeros = collapse ? t.filter((x) => x.count === 0).length : 0;
+  const list = collapse && !showZero && !picking ? t.filter((x) => x.count > 0) : t;
 
   return (
     <section>
@@ -674,8 +676,8 @@ function Bars({
         {isMenu ? "메뉴 주문 집계" : q.title}
       </SectionTitle>
       <div className="space-y-2">
-        {isMenu && list.length === 0 && !showZero && (
-          <p className="rounded-2xl border border-dashed border-line py-6 text-center text-[13.5px] text-ink-3">아직 메뉴를 고른 사람이 없어요</p>
+        {collapse && list.length === 0 && !showZero && (
+          <p className="rounded-2xl border border-dashed border-line py-6 text-center text-[13.5px] text-ink-3">{isMenu ? "아직 메뉴를 고른 사람이 없어요" : "아직 식당을 고른 사람이 없어요"}</p>
         )}
         {list.map((x, i) => {
           const isDecided = decided === x.option;
@@ -742,9 +744,9 @@ function Bars({
         })}
       </div>
 
-      {zeros > 0 && (
+      {zeros > 0 && !picking && (
         <button type="button" onClick={() => setShowZero((v) => !v)} className="mt-2 text-[13px] font-semibold text-ink-2 underline underline-offset-4">
-          {showZero ? "주문 없는 메뉴 접기" : `주문 없는 메뉴 ${zeros}개 보기`}
+          {showZero ? (isMenu ? "주문 없는 메뉴 접기" : "표 없는 식당 접기") : isMenu ? `주문 없는 메뉴 ${zeros}개 보기` : `표 없는 식당 ${zeros}곳 보기`}
         </button>
       )}
 

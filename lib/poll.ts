@@ -9,6 +9,9 @@ export const LIMITS = {
   questions: 8,
   questionTitle: 60,
   options: 12,
+  /** 식당 투표는 지역 전체 식당을 선택지로 쓸 수 있어 더 크게 */
+  placeOptions: 120,
+  maxPick: 5,
   option: 40,
   name: 20,
   text: 300,
@@ -166,7 +169,7 @@ export function parseQuestion(raw: unknown, allowAttendance: boolean): Parsed<Qu
         ? []
         : Array.from(
             new Set((Array.isArray(q.options) ? q.options : []).map((o) => str(o, LIMITS.option)).filter(Boolean)),
-          ).slice(0, LIMITS.options);
+          ).slice(0, q.topic === "place" ? LIMITS.placeOptions : LIMITS.options);
   if ((kind === "single" || kind === "multi") && options.length < 1) return { ok: true, data: null };
   if (!title) return { ok: false, error: "질문 제목을 입력해 주세요." };
   return {
@@ -180,6 +183,10 @@ export function parseQuestion(raw: unknown, allowAttendance: boolean): Parsed<Qu
       onlyIfAttending: kind !== "attendance" && q.onlyIfAttending !== false ? true : undefined,
       topic: (kind === "single" || kind === "multi") && (q.topic === "place" || q.topic === "menu") ? q.topic : undefined,
       optionGroups: parseGroups(q.optionGroups, options),
+      maxPick:
+        kind === "multi" && q.topic === "place" && Number.isInteger(q.maxPick) && (q.maxPick as number) >= 1 && (q.maxPick as number) <= LIMITS.maxPick
+          ? (q.maxPick as number)
+          : undefined,
     },
   };
 }
@@ -251,7 +258,7 @@ export function parseCreate(body: unknown): Parsed<CreateInput> {
   const allowed = new Set([str(b.place, LIMITS.place), ...questions.flatMap((q) => q.options)].filter(Boolean));
   const placeInfo: Record<string, PlaceSnap> = {};
   if (b.placeInfo && typeof b.placeInfo === "object") {
-    for (const [k, v] of Object.entries(b.placeInfo as Record<string, unknown>).slice(0, 20)) {
+    for (const [k, v] of Object.entries(b.placeInfo as Record<string, unknown>).slice(0, LIMITS.placeOptions)) {
       const snap = parseSnap(v);
       if (snap && allowed.has(k)) placeInfo[k] = snap;
     }
@@ -311,7 +318,7 @@ export function parseAnswers(poll: QLike, raw: unknown): { ok: true; answers: Re
       if (t) answers[q.id] = t;
     } else if (q.kind === "multi") {
       const arr = Array.isArray(v) ? v.filter((x): x is string => typeof x === "string" && q.options.includes(x)) : [];
-      if (arr.length) answers[q.id] = Array.from(new Set(arr));
+      if (arr.length) answers[q.id] = Array.from(new Set(arr)).slice(0, q.maxPick ?? arr.length);
     } else if (typeof v === "string" && q.options.includes(v)) {
       answers[q.id] = v;
     }
