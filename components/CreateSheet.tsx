@@ -23,11 +23,11 @@ import { useMemo, useState } from "react";
 import { ApiError, api, copyText, josa, kakaoText, pollUrl, sharePin, shareText, fmtDate, keys, kstToIso, kstToday, local, shareLink, track } from "@/lib/client";
 import { LIMITS, teamKey } from "@/lib/poll";
 import { orgGroups, orgTeamList } from "@/lib/teams";
-import { type Place, type Region, koIncludes, menuLabel, regionLabel, toSnap } from "@/lib/places";
+import { type Place, type Region, koIncludes, menuLabel, regionLabel, searchPlaces, toSnap } from "@/lib/places";
 import type { QuestionKind, Stage, Template } from "@/lib/types";
 import { ChipsInput } from "./ChipsInput";
 import { RosterField } from "./Rosters";
-import { MenuSuggestions, PlacePicker, SaveMenus } from "./Places";
+import { MenuSuggestions, PlacePicker, SaveMenus, usePlaces } from "./Places";
 import { PinPad } from "./PinPad";
 import { Sheet, SheetBody, SheetFooter } from "./Sheet";
 import { Button, Field, flash, IconButton, reveal, Segmented, Toggle, cx, inputCls, textareaCls, toast } from "./ui";
@@ -40,6 +40,7 @@ type DraftQ = {
   options: string[];
   topic?: "place" | "menu";
   optionGroups?: Record<string, string>;
+  maxPick?: number;
 };
 
 let seq = 0;
@@ -135,7 +136,12 @@ export function CreateSheet({
   const [questions, setQuestions] = useState<DraftQ[]>(generalQuestions);
   const [roster, setRoster] = useState<string[]>([]);
   // 식사 모임 구성
-  const [placeMode, setPlaceMode] = useState<"vote" | "fixed" | "none">("vote");
+  // vote: 후보를 골라 투표 / all: 지역 전체 식당 중에서 참여자가 직접 골라 투표
+  const [placeMode, setPlaceMode] = useState<"vote" | "all" | "fixed" | "none">("vote");
+  const [maxPick, setMaxPick] = useState(3);
+  const regionPlaces = usePlaces(region);
+  // 많이 고른 순 (참여자 화면의 기본 순서)
+  const allPlaces = useMemo(() => (regionPlaces ? searchPlaces(regionPlaces, "") : []), [regionPlaces]);
   const [candidatePlaces, setCandidatePlaces] = useState<Place[]>([]);
   const [fixedPlace, setFixedPlace] = useState<Place[]>([]);
   // 후보 투표면 메뉴는 항상 식당 확정 후 2차로 (한 번에 받기는 흐름이 복잡해 제거)
@@ -183,10 +189,12 @@ export function CreateSheet({
     return !!v && t > Date.now() && (!eventAt || t < Date.parse(eventAt));
   }) as [string, string][];
 
-  const candidates = Array.from(new Set(candidatePlaces.map((p) => p.name)));
+  const voting = placeMode === "vote" || placeMode === "all";
+  const votePlaces = placeMode === "all" ? allPlaces : placeMode === "vote" ? candidatePlaces : [];
+  const candidates = Array.from(new Set(votePlaces.map((p) => p.name)));
   const place = fixedPlace[0]?.name ?? "";
   const placeInfo = Object.fromEntries(
-    (placeMode === "vote" ? candidatePlaces : placeMode === "fixed" ? fixedPlace : []).map((p) => [p.name, toSnap(p)]),
+    (voting ? votePlaces : placeMode === "fixed" ? fixedPlace : []).map((p) => [p.name, toSnap(p)]),
   );
   const menuSource = placeMode === "fixed" ? (fixedPlace[0]?.menus ?? []) : [];
   // 식당·메뉴 한 번에 받기: 후보 식당별 메뉴 → 선택지 라벨(식당 간 같은 이름이면 식당명 덧붙임)과 소속 식당
@@ -202,8 +210,8 @@ export function CreateSheet({
   const suggested = new Set(together ? candidatePlaces.flatMap((p) => p.menus.map((m) => groupLabel(p, m))) : menuSource.map(menuLabel));
   const mealQs: DraftQ[] = [
     { key: "a", kind: "attendance", title: "참석하시나요?", options: [] },
-    ...(placeMode === "vote" && candidates.length ? [{ key: "r", kind: "multi" as const, title: "어느 식당이 좋으세요?", options: candidates, topic: "place" as const }] : []),
-    ...(placeMode !== "vote" && askMenu && menus.length
+    ...(voting && candidates.length ? [{ key: "r", kind: "multi" as const, title: placeMode === "all" ? "가고 싶은 식당을 골라주세요" : "어느 식당이 좋으세요?", options: candidates, topic: "place" as const, maxPick: placeMode === "all" ? maxPick : undefined }] : []),
+    ...(!voting && askMenu && menus.length
       ? [{ key: "m", kind: (menuMulti ? "multi" : "single") as QuestionKind, title: "어떤 메뉴로 하시겠어요?", options: menus, topic: "menu" as const, optionGroups: together && Object.keys(menuGroups).length ? menuGroups : undefined }]
       : []),
     ...(askNote ? [{ key: "n", kind: "text" as const, title: "요청사항이 있으면 알려주세요", options: [] }] : []),
@@ -221,11 +229,15 @@ export function CreateSheet({
             ? "마감은 모임 시작 전이어야 해요"
             : null;
   const qError = isMeal
-    ? placeMode === "vote" && candidates.length < 2
-      ? "식당 후보를 2곳 이상 입력해 주세요"
+    ? voting && candidates.length < 2
+      ? placeMode === "all"
+        ? regionPlaces
+          ? "이 지역에 등록된 식당이 2곳 미만이에요. '후보 투표'로 식당을 추가해 주세요"
+          : "식당 목록을 불러오는 중이에요. 잠시 후 다시 눌러 주세요"
+        : "식당 후보를 2곳 이상 입력해 주세요"
       : placeMode === "fixed" && !place.trim()
         ? "식당을 선택해 주세요"
-        : placeMode !== "vote" && askMenu && menus.length === 0
+        : !voting && askMenu && menus.length === 0
           ? "메뉴를 1개 이상 넣거나 '메뉴도 받기'를 꺼 주세요"
           : null
     : validQs.length === 0 ? "질문과 선택지를 1개 이상 입력해 주세요" : questions.some((q) => (q.kind === "single" || q.kind === "multi") && q.options.length > 0 && !q.title.trim()) ? "질문 제목을 입력해 주세요" : null;
@@ -251,14 +263,15 @@ export function CreateSheet({
         title: finalTitle,
         note: note.trim() || undefined,
         place: isMeal && placeMode === "fixed" ? place.trim() : undefined,
-        placeInfo: isMeal ? placeInfo : undefined,
+        placeInfo: isMeal && placeMode !== "all" ? placeInfo : undefined,
+        placesAll: isMeal && placeMode === "all" ? true : undefined,
         region,
         roster: roster.length ? roster : undefined,
         eventAt,
         deadline: deadlineIso,
         pin: pinValue,
-        questions: validQs.map((q) => ({ kind: q.kind, title: q.title.trim() || "참석하시나요?", options: q.options, topic: q.topic, optionGroups: q.optionGroups })),
-        menuLater: isMeal && placeMode === "vote" && menuLater && candidates.length > 0,
+        questions: validQs.map((q) => ({ kind: q.kind, title: q.title.trim() || "참석하시나요?", options: placeMode === "all" && q.topic === "place" ? ["*"] : q.options, topic: q.topic, optionGroups: q.optionGroups, maxPick: q.maxPick })),
+        menuLater: isMeal && voting && menuLater && candidates.length > 0,
         adminPin: adminPinValue,
       };
       const res = await api.create(body);
@@ -269,10 +282,10 @@ export function CreateSheet({
         ...res,
         title: body.title,
         team: body.team,
-        menuLater: isMeal && placeMode === "vote" && menuLater,
+        menuLater: isMeal && voting && menuLater,
         deadline: deadlineIso,
         eventAt,
-        stageLabel: isMeal && placeMode === "vote" && candidates.length ? "식당 투표 중" : isMeal && askMenu && menus.length ? "메뉴 선택 중" : isMeal ? "참석 확인 중" : "투표 중",
+        stageLabel: isMeal && voting && candidates.length ? "식당 투표 중" : isMeal && askMenu && menus.length ? "메뉴 선택 중" : isMeal ? "참석 확인 중" : "투표 중",
       });
       track("poll-created");
       onCreated(res.id, body.team);
@@ -612,6 +625,7 @@ export function CreateSheet({
                       onChange={setPlaceMode}
                       options={[
                         { value: "vote", label: "후보 투표" },
+                        { value: "all", label: "전체 중에서" },
                         { value: "fixed", label: "이미 정함" },
                         { value: "none", label: "묻지 않음" },
                       ]}
@@ -630,6 +644,27 @@ export function CreateSheet({
                             setCandidatePlaces(v);
                           }}
                         />
+                      )}
+                      {placeMode === "all" && (
+                        <div className="rounded-2xl bg-accent-soft px-4 py-3.5 text-[13.5px] leading-relaxed text-[#0b6b51]">
+                          <p>
+                            <b className="font-semibold">{regionLabel(region)} 식당 {regionPlaces ? `${allPlaces.length}곳` : "목록"} 전체</b>가 후보예요. 참여자가 검색해서 직접 골라요.
+                          </p>
+                          <p className="mt-2 text-[12.5px] font-semibold">1인당 최대 몇 곳까지 고를 수 있나요?</p>
+                          <div className="mt-1.5 flex gap-1.5">
+                            {[1, 2, 3, 5].map((n) => (
+                              <button
+                                key={n}
+                                type="button"
+                                aria-pressed={maxPick === n}
+                                onClick={() => setMaxPick(n)}
+                                className={cx("h-9 whitespace-nowrap rounded-full px-3.5 text-[13.5px] font-semibold transition active:scale-95", maxPick === n ? "bg-[#0b6b51] text-white" : "bg-white/70 text-[#0b6b51]")}
+                              >
+                                {n}곳
+                              </button>
+                            ))}
+                          </div>
+                        </div>
                       )}
                       {placeMode === "fixed" && (
                         <PlacePicker
@@ -650,7 +685,7 @@ export function CreateSheet({
                   </Field>
 
                   <Field label="메뉴" id="f-menu" error={tried.questions && qField === "menu" ? qError : null}>
-                    {placeMode === "vote" ? (
+                    {voting ? (
                       <div className="rounded-2xl bg-accent-soft px-4 py-3.5 text-[13.5px] leading-relaxed text-[#0b6b51]">
                         <b className="font-semibold">① 참석 + 식당 투표</b> → 마감되면 1위 식당 확정 → <b className="font-semibold">② 그 식당 메뉴로 메뉴 투표</b> (같은 링크)
                         <br />
@@ -746,9 +781,9 @@ export function CreateSheet({
                       ...(placeMode === "fixed" && place ? [{ t: `장소 안내 · ${place}`, s: "선택 없이 화면 위에 자동으로 보여줘요", auto: true }] : []),
                       { t: "이름 선택", s: roster.length ? "명단에서 탭" : "이름 입력" },
                       { t: "참석 여부", s: "참석 · 미정 · 불참" },
-                      ...(placeMode === "vote" && candidates.length ? [{ t: `식당 투표 · ${candidates.length}곳`, s: "주소·대표메뉴와 함께 표시" }] : []),
-                      ...(placeMode !== "vote" && askMenu && menus.length ? [{ t: `메뉴 선택 · ${menus.length}개`, s: menuMulti ? "복수 선택" : "하나만 선택" }] : []),
-                      ...(placeMode === "vote" && menuLater ? [
+                      ...(voting && candidates.length ? [{ t: placeMode === "all" ? `식당 투표 · 전체 ${candidates.length}곳 중 최대 ${maxPick}곳` : `식당 투표 · ${candidates.length}곳`, s: placeMode === "all" ? "검색해서 고르기 · 많이 고른 곳 먼저" : "주소·대표메뉴와 함께 표시" }] : []),
+                      ...(!voting && askMenu && menus.length ? [{ t: `메뉴 선택 · ${menus.length}개`, s: menuMulti ? "복수 선택" : "하나만 선택" }] : []),
+                      ...(voting && menuLater ? [
                           {
                             t: "식당이 정해지면 → 메뉴 투표 (같은 링크)",
                             s: deadlineMode === "custom" && deadline ? `${fmtLocal(deadline)} 마감 때 1위 식당으로 자동 시작` : "관리자가 현황 탭에서 한 번 눌러 시작",

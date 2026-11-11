@@ -1,7 +1,8 @@
 import { hashAdminPin, shortId, hashAdmin, hashPin, randomId } from "@/lib/auth";
 import { fail, json, readJson } from "@/lib/http";
-import { autoAdvance, parseCreate, teamKey, toSummary } from "@/lib/poll";
-import { DEFAULT_REGION } from "@/lib/places";
+import { LIMITS, autoAdvance, parseCreate, teamKey, toSummary } from "@/lib/poll";
+import { DEFAULT_REGION, type PlaceSnap, searchPlaces, toSnap } from "@/lib/places";
+import { getPlaces } from "@/lib/places-server";
 import { overLimit } from "@/lib/ratelimit";
 import { listRegions, regionMoves, resolveRegion } from "@/lib/regions-server";
 import { getStore } from "@/lib/store";
@@ -31,12 +32,29 @@ export async function POST(req: Request) {
   if (await overLimit(req, "create", 30, 3600)) {
     return fail("잠시 후 다시 시도해 주세요.", 429);
   }
-  const parsed = parseCreate(await readJson(req));
+  const raw = await readJson(req);
+  const parsed = parseCreate(raw);
   if (!parsed.ok) return fail(parsed.error);
   const { pin, adminPin, ...data } = parsed.data;
   const region = await resolveRegion(data.region ?? DEFAULT_REGION);
   if (!region) return fail("없는 지역이에요. 새로고침 후 다시 시도해 주세요.");
   data.region = region;
+  // 지역 전체 식당 중에서 투표: 선택지·식당 정보는 서버가 직접 채움 (요청 크기 제한 때문에 클라이언트가 보내지 않음)
+  const allQ = (raw as { placesAll?: unknown } | null)?.placesAll === true ? data.questions.find((q) => q.topic === "place" && q.kind === "multi") : undefined;
+  if (allQ) {
+    const places = searchPlaces(await getPlaces(region), "");
+    const names = new Set<string>();
+    const info: Record<string, PlaceSnap> = {};
+    for (const p of places) {
+      const name = p.name.slice(0, LIMITS.option);
+      if (names.has(name) || names.size >= LIMITS.placeOptions) continue;
+      names.add(name);
+      info[name] = { ...toSnap(p), name };
+    }
+    if (names.size < 2) return fail("이 지역에 등록된 식당이 2곳 미만이에요. 후보 투표로 식당을 추가해 주세요.");
+    allQ.options = [...names];
+    data.placeInfo = info;
+  }
   // 이미 있는 팀과 띄어쓰기·대소문자만 다르면 기존 표기로 맞춤 (팀 중복 방지)
   const same = (await store.listPolls(200)).find(({ poll: p }) => (p.region ?? DEFAULT_REGION) === (data.region ?? DEFAULT_REGION) && teamKey(p.team) === teamKey(data.team));
   if (same) data.team = same.poll.team;

@@ -4,7 +4,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { Check, ChevronLeft, CircleHelp, Lock, UserRound, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ApiError, api, josa, keys, local, openExternal, progressTable, vibrate } from "@/lib/client";
-import { menuLabel, naverUrl } from "@/lib/places";
+import { koIncludes, menuLabel, naverUrl } from "@/lib/places";
 import { allowedOptions, nameKey, pendingQuestions, visibleQuestions } from "@/lib/poll";
 import type { Answer, PollDetail, Question } from "@/lib/types";
 import { ATTEND } from "@/lib/types";
@@ -169,6 +169,10 @@ export function VoteFlow({
     vibrate(8);
     if (q.kind === "multi") {
       const cur = (answers[q.id] as string[] | undefined) ?? [];
+      if (q.maxPick && !cur.includes(value) && cur.length >= q.maxPick) {
+        toast(`최대 ${q.maxPick}곳까지 고를 수 있어요. 하나를 빼고 골라 주세요`);
+        return;
+      }
       const nextVal = cur.includes(value) ? cur.filter((v) => v !== value) : [...cur, value];
       setAnswers({ ...answers, [q.id]: nextVal });
       return;
@@ -495,6 +499,9 @@ function QuestionView({
   total: number;
 }) {
   const eyebrow = `${index} / ${total}`;
+  // 선택지가 많은 식당 투표(전체 식당 중에서 고르기): 검색 + 고른 곳·인기 순 먼저
+  const [query, setQuery] = useState("");
+  const [showAll, setShowAll] = useState(false);
   if (q.kind === "attendance") {
     return (
       <>
@@ -544,19 +551,52 @@ function QuestionView({
   }
   const multi = q.kind === "multi";
   const selected = multi ? ((answer as string[] | undefined) ?? []) : answer ? [answer as string] : [];
+  const big = q.topic === "place" && options.length > 12;
+  const key = query.trim();
+  const haystack = (o: string) => {
+    const i = placeInfo[o];
+    return [o, i?.category, ...(i?.menus ?? []).map((m) => m.name)].filter(Boolean).join(" ");
+  };
+  const shown = !big
+    ? options
+    : key
+      ? options.filter((o) => koIncludes(/^[ㄱ-ㅎ]+$/.test(key) ? o : haystack(o), key)) // 초성은 식당 이름에서만 찾음 (메뉴까지 보면 엉뚱한 곳이 걸림)
+      : showAll
+        ? [...options.filter((o) => selected.includes(o)), ...options.filter((o) => !selected.includes(o))]
+        : [...options.filter((o) => selected.includes(o)), ...options.filter((o) => !selected.includes(o)).slice(0, Math.max(6, 8 - selected.length))];
+  const hiddenCount = big && !key && !showAll ? options.length - shown.length : 0;
   return (
     <>
       <StepHead
         eyebrow={eyebrow}
         title={q.title}
-        sub={[q.optionGroups ? "고르신 식당의 메뉴만 보여드려요." : "", multi ? "여러 개를 고를 수 있어요." : ""].filter(Boolean).join(" ") || undefined}
+        sub={
+          [
+            q.optionGroups ? "고르신 식당의 메뉴만 보여드려요." : "",
+            multi ? (q.maxPick ? `최대 ${q.maxPick}곳까지 고를 수 있어요 (${selected.length}/${q.maxPick}).` : "여러 개를 고를 수 있어요.") : "",
+            big && !key ? `전체 ${options.length}곳 중 많이 고른 곳 순이에요. 검색해서 찾아도 돼요.` : "",
+          ]
+            .filter(Boolean)
+            .join(" ") || undefined
+        }
       />
+      {big && (
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="식당·메뉴 검색 (초성 가능: ㅁㄱㅎ)"
+          aria-label="식당 검색"
+          autoComplete="off"
+          className={cx(inputCls, "mb-3")}
+        />
+      )}
+      {big && key && shown.length === 0 && <p className="rounded-2xl bg-ink/[0.03] px-4 py-6 text-center text-[13.5px] text-ink-3">찾는 식당이 없어요. 다른 이름이나 메뉴로 검색해 보세요.</p>}
       <div id="options-area" className="space-y-2">
-        {options.map((o, i) => {
+        {shown.map((o, i) => {
           const on = selected.includes(o);
           // 식당별 묶음 제목 (식당 연계 메뉴일 때)
           const group = q.optionGroups ? (q.optionGroups[o] ?? "공통 메뉴") : null;
-          const prevGroup = i > 0 && q.optionGroups ? (q.optionGroups[options[i - 1]] ?? "공통 메뉴") : null;
+          const prevGroup = i > 0 && q.optionGroups ? (q.optionGroups[shown[i - 1]] ?? "공통 메뉴") : null;
           const header = group && group !== prevGroup ? (
             <p key={`h-${group}`} className={cx("flex items-center gap-1.5 px-1 text-[13px] font-bold text-ink-2", i > 0 && "pt-3")}>
               <span className="size-1.5 rounded-full bg-accent" /> {group}
@@ -592,6 +632,11 @@ function QuestionView({
           ];
         })}
       </div>
+      {hiddenCount > 0 && (
+        <button type="button" onClick={() => setShowAll(true)} className="mt-2 w-full rounded-2xl py-3 text-[14px] font-semibold text-ink-2 hover:bg-ink/[0.03]">
+          나머지 {hiddenCount}곳 모두 보기
+        </button>
+      )}
     </>
   );
 }

@@ -16,6 +16,8 @@ export interface Question {
   topic?: "place" | "menu";
   /** 메뉴 선택지 → 소속 식당 (식당·메뉴를 한 번에 받을 때, 고른 식당의 메뉴만 보여주기 위함) */
   optionGroups?: Record<string, string>;
+  /** 복수 선택 식당 투표에서 1인당 고를 수 있는 최대 개수 (전체 식당 중에서 투표할 때) */
+  maxPick?: number;
 }
 
 export type Template = "meal" | "general";
